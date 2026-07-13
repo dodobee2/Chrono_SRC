@@ -1,0 +1,10 @@
+contact_pair_id: wheel_rubber_rock_assumed_v0
+wheel_material_id: wheel_rubber_v0
+terrain_material_id: rock_assumed_v0
+mu_eff: 0.70
+crr_eff: 0.09
+source: assumed
+confidence: 0.35
+metadata:
+  note: Assumed contact pair for rock scenarios.
+

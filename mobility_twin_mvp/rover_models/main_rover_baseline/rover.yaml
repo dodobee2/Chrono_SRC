@@ -9,10 +9,11 @@ cg_height_m: 0.22
 ground_clearance_m: 0.12
 driven_wheel_count: 4
 max_wheel_torque_nm: 14.0
-mu_eff: 0.65
-crr: 0.08
+wheel_material_id: wheel_rubber_v0
+wheel_contact_model: placeholder_contact_v0
+fallback_mu_eff: 0.65
+fallback_crr: 0.08
 model_uri: pending://hojin/main_rover_model
 metadata:
   owner: Hojin rover model team
   note: Placeholder SI spec only; no CAD, collision, tire, or Chrono wheel model assumed.
-

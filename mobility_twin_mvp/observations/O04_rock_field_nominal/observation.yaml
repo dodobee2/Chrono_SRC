@@ -1,0 +1,34 @@
+observation_id: O04_rock_field_nominal
+terrain_id: T04_rock_field
+scout_rover_id: scout_placeholder_v0
+control_profile_id: nominal_traverse
+timestamp_utc: "2026-07-14T00:00:00+00:00"
+patch_id: 104
+grid_x: 3
+grid_y: 0
+pose_xyz_m: [0.0, 0.0, 0.0]
+heading_deg: 0.0
+sample_count: 40
+travel_distance_m: 1.8
+slope_long_deg: 12.0
+slope_lat_deg: 9.0
+roughness_m: 0.075
+obstacle_height_m: 0.095
+gap_width_m: 0.12
+mean_body_speed_mps: 0.18
+mean_wheel_speed_radps: 3.0
+mean_slip: 0.34
+max_slip: 0.52
+mean_sinkage_m: 0.042
+max_sinkage_m: 0.060
+mean_wheel_torque_nm: 2.0
+cot: 1.85
+vibration_rms_g: 0.90
+geometry_confidence: 0.6
+response_confidence: 0.55
+prediction_confidence: 0.0
+source_type: mock
+observation_state: SCOUT_TRAVERSED
+metadata:
+  note: Mock scout observation for contract testing.
+

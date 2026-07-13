@@ -1,0 +1,12 @@
+material_id: material_id_here
+model_type: unknown
+friction_nominal:
+rolling_resistance_nominal:
+restitution:
+scm_parameters: {}
+parameter_source: assumed
+confidence: 0.0
+metadata:
+  owner:
+  measurement_method:
+

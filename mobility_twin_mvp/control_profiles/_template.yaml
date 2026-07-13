@@ -1,0 +1,11 @@
+profile_id: profile_id_here
+display_name: Control Profile Display Name
+target_speed_mps: 0.0
+duration_s: 1.0
+throttle: 0.0
+steering_deg: 0.0
+drive_mode: velocity_hold
+metadata:
+  owner:
+  command_type:
+

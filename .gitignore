@@ -20,6 +20,7 @@ env/
 # Generated outputs
 outputs/
 data/chrono_outputs/
+mobility_twin_mvp/data/experiment_results/
 *.log
 
 # IDE / OS

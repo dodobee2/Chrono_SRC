@@ -1,0 +1,72 @@
+terrain_id: T04_rock_field
+display_name: T04 Rock Field
+terrain_type: mixed
+surface_hint: mixed
+material_id: rock_assumed_v0
+dimensions_xyz_m: [2.5, 2.0, 0.5]
+frame_id: terrain_T04
+random_seed: 104
+geometry:
+  source_type: procedural
+  asset_uri:
+  factory_uri:
+  scale_xyz: [1.0, 1.0, 1.0]
+  frame_id: terrain_T04
+  coordinate_convention: Chrono_XForward_YLeft_ZUp
+  origin_pose:
+    xyz_m: [0.0, 0.0, 0.0]
+    rpy_deg: [0.0, 0.0, 0.0]
+slope_long_deg: 12.0
+slope_lat_deg: 9.0
+roughness_m: 0.075
+gap_width_m: 0.12
+patch_id: 104
+grid_x: 3
+grid_y: 0
+observation_state: SCOUT_OBSERVED
+geometry_confidence: 0.6
+prediction_confidence: 0.0
+obstacles:
+  - obstacle_id: rock_001
+    kind: rock
+    pose:
+      xyz_m: [0.35, -0.25, 0.0]
+      rpy_deg: [0.0, 0.0, 0.0]
+    dimensions_xyz_m: [0.19, 0.16, 0.055]
+    radius_m: 0.08
+    collision_uri:
+    visual_uri:
+    material_id: rock_assumed_v0
+    is_fixed: true
+  - obstacle_id: rock_002
+    kind: rock
+    pose:
+      xyz_m: [0.75, 0.18, 0.0]
+      rpy_deg: [0.0, 0.0, 0.0]
+    dimensions_xyz_m: [0.24, 0.22, 0.095]
+    radius_m: 0.11
+    collision_uri:
+    visual_uri:
+    material_id: rock_assumed_v0
+    is_fixed: true
+  - obstacle_id: ridge_001
+    kind: ridge
+    pose:
+      xyz_m: [1.1, 0.0, 0.0]
+      rpy_deg: [0.0, 0.0, 0.0]
+    dimensions_xyz_m: [0.12, 0.60, 0.060]
+    radius_m: 0.0
+    collision_uri:
+    visual_uri:
+    material_id: rock_assumed_v0
+    is_fixed: true
+scout_response:
+  scout_slip: 0.34
+  scout_sinkage_m: 0.042
+  scout_wheel_torque_nm: 2.0
+  scout_cot: 1.85
+  vibration_rms_g: 0.90
+metadata:
+  owner: Jongmin terrain model team
+  note: Legacy scout_response retained for migration compatibility.
+

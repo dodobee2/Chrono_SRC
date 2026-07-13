@@ -1,0 +1,11 @@
+material_id: rock_assumed_v0
+model_type: rigid
+friction_nominal: 0.70
+rolling_resistance_nominal: 0.09
+restitution: 0.10
+scm_parameters: {}
+parameter_source: assumed
+confidence: 0.35
+metadata:
+  note: Low-confidence assumed rock field material.
+

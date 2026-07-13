@@ -9,8 +9,15 @@ import pandas as pd
 import streamlit as st
 
 from src.backends import make_backend
-from src.integration_schemas import SimulationResult
-from src.registries import ControlProfileRegistry, RoverRegistry, TerrainRegistry
+from src.integration_schemas import RoverSpec, SimulationResult
+from src.registries import (
+    ContactPairRegistry,
+    ControlProfileRegistry,
+    ObservationRegistry,
+    RoverRegistry,
+    TerrainMaterialRegistry,
+    TerrainRegistry,
+)
 from src.risk_fusion import analyze_dataframe
 from src.sample_generator import save_sample_csv
 from src.schemas import DEFAULT_MAIN_ROVER, DEFAULT_SCOUT_REFERENCE, MainRoverConfig, ScoutReferenceConfig
@@ -19,9 +26,12 @@ from src.schemas import DEFAULT_MAIN_ROVER, DEFAULT_SCOUT_REFERENCE, MainRoverCo
 APP_DIR = Path(__file__).resolve().parent
 SAMPLE_CSV = APP_DIR / "data" / "sample_patches.csv"
 EXPERIMENT_OUTPUT_DIR = APP_DIR / "data" / "experiment_results"
-ROVER_REGISTRY = RoverRegistry(APP_DIR / "rover_models")
-TERRAIN_REGISTRY = TerrainRegistry(APP_DIR / "terrain_scenarios")
-CONTROL_REGISTRY = ControlProfileRegistry(APP_DIR / "control_profiles")
+ROVER_REGISTRY = RoverRegistry(APP_DIR / "rover_models", repo_root=APP_DIR)
+TERRAIN_REGISTRY = TerrainRegistry(APP_DIR / "terrain_scenarios", repo_root=APP_DIR)
+CONTROL_REGISTRY = ControlProfileRegistry(APP_DIR / "control_profiles", repo_root=APP_DIR)
+OBSERVATION_REGISTRY = ObservationRegistry(APP_DIR / "observations", repo_root=APP_DIR)
+TERRAIN_MATERIAL_REGISTRY = TerrainMaterialRegistry(APP_DIR / "terrain_materials", repo_root=APP_DIR)
+CONTACT_PAIR_REGISTRY = ContactPairRegistry(APP_DIR / "contact_pairs", repo_root=APP_DIR)
 
 
 GRADE_COLORS = {
@@ -29,6 +39,8 @@ GRADE_COLORS = {
     "Caution": "#f1c40f",
     "Risk": "#de2d26",
     "Unknown": "#9e9e9e",
+    "NOT_EVALUATED": "#9e9e9e",
+    "GEOMETRY_ONLY": "#3182bd",
 }
 
 
@@ -45,40 +57,27 @@ def save_simulation_result(result: SimulationResult) -> Path:
     return output_path
 
 
-def sidebar_configs() -> tuple[MainRoverConfig, ScoutReferenceConfig]:
+def sidebar_configs(rover_preset: RoverSpec | None = None) -> tuple[MainRoverConfig, ScoutReferenceConfig]:
+    defaults = DEFAULT_MAIN_ROVER if rover_preset is None else rover_preset.to_main_config()
     st.sidebar.header("Main rover")
     main = MainRoverConfig(
-        mass_kg=st.sidebar.number_input("Mass (kg)", min_value=1.0, value=DEFAULT_MAIN_ROVER.mass_kg, step=1.0),
-        wheel_radius_m=st.sidebar.number_input(
-            "Wheel radius (m)", min_value=0.01, value=DEFAULT_MAIN_ROVER.wheel_radius_m, step=0.01
-        ),
-        wheel_width_m=st.sidebar.number_input(
-            "Wheel width (m)", min_value=0.01, value=DEFAULT_MAIN_ROVER.wheel_width_m, step=0.01
-        ),
-        wheelbase_m=st.sidebar.number_input(
-            "Wheelbase (m)", min_value=0.05, value=DEFAULT_MAIN_ROVER.wheelbase_m, step=0.05
-        ),
-        track_width_m=st.sidebar.number_input(
-            "Track width (m)", min_value=0.05, value=DEFAULT_MAIN_ROVER.track_width_m, step=0.05
-        ),
-        cg_height_m=st.sidebar.number_input(
-            "CG height (m)", min_value=0.02, value=DEFAULT_MAIN_ROVER.cg_height_m, step=0.01
-        ),
+        mass_kg=st.sidebar.number_input("Mass (kg)", min_value=1.0, value=defaults.mass_kg, step=1.0),
+        wheel_radius_m=st.sidebar.number_input("Wheel radius (m)", min_value=0.01, value=defaults.wheel_radius_m, step=0.01),
+        wheel_width_m=st.sidebar.number_input("Wheel width (m)", min_value=0.01, value=defaults.wheel_width_m, step=0.01),
+        wheelbase_m=st.sidebar.number_input("Wheelbase (m)", min_value=0.05, value=defaults.wheelbase_m, step=0.05),
+        track_width_m=st.sidebar.number_input("Track width (m)", min_value=0.05, value=defaults.track_width_m, step=0.05),
+        cg_height_m=st.sidebar.number_input("CG height (m)", min_value=0.02, value=defaults.cg_height_m, step=0.01),
         ground_clearance_m=st.sidebar.number_input(
-            "Ground clearance (m)", min_value=0.01, value=DEFAULT_MAIN_ROVER.ground_clearance_m, step=0.01
+            "Ground clearance (m)", min_value=0.01, value=defaults.ground_clearance_m, step=0.01
         ),
         driven_wheel_count=st.sidebar.number_input(
-            "Driven wheel count", min_value=1, max_value=12, value=DEFAULT_MAIN_ROVER.driven_wheel_count, step=1
+            "Driven wheel count", min_value=1, max_value=12, value=defaults.driven_wheel_count, step=1
         ),
         max_wheel_torque_nm=st.sidebar.number_input(
-            "Max wheel torque (Nm)", min_value=0.1, value=DEFAULT_MAIN_ROVER.max_wheel_torque_nm, step=1.0
+            "Max wheel torque (Nm)", min_value=0.1, value=defaults.max_wheel_torque_nm, step=1.0
         ),
-        mu_eff=st.sidebar.number_input(
-            "Effective mu", min_value=0.01, max_value=2.0, value=DEFAULT_MAIN_ROVER.mu_eff, step=0.05
-        ),
-        crr=st.sidebar.number_input(
-            "Rolling resistance Crr", min_value=0.0, max_value=1.0, value=DEFAULT_MAIN_ROVER.crr, step=0.01
-        ),
+        mu_eff=st.sidebar.number_input("Effective mu", min_value=0.01, max_value=2.0, value=defaults.mu_eff, step=0.05),
+        crr=st.sidebar.number_input("Rolling resistance Crr", min_value=0.0, max_value=1.0, value=defaults.crr, step=0.01),
     )
 
     st.sidebar.header("Scout reference")
@@ -103,10 +102,9 @@ def sidebar_configs() -> tuple[MainRoverConfig, ScoutReferenceConfig]:
 
 
 def render_integration_experiment() -> None:
-    st.header("Integration Experiment")
     st.caption(
-        "RoverSpec, TerrainScenario, ControlProfile을 공통 SimulationResult로 연결하는 skeleton입니다. "
-        "Mock Chrono는 실제 PyChrono, CAD, collision, wheel, SCM/DEM 모델을 만들지 않습니다."
+        "Integration Contract MVP: RoverSpec + TerrainScenario + ScoutObservation + ContactPairSpec + "
+        "ControlProfile을 공통 SimulationResult로 연결합니다."
     )
 
     rover_ids = ROVER_REGISTRY.ids()
@@ -116,37 +114,67 @@ def render_integration_experiment() -> None:
         st.warning("Registry YAML files are missing. Check rover_models, terrain_scenarios, and control_profiles.")
         return
 
-    col1, col2, col3, col4 = st.columns(4)
-    rover_id = col1.selectbox("Rover model", rover_ids)
-    terrain_id = col2.selectbox("Terrain scenario", terrain_ids)
-    control_id = col3.selectbox("Control profile", control_ids)
-    backend_id = col4.selectbox("Backend", ["heuristic", "mock_chrono"])
+    col1, col2, col3 = st.columns(3)
+    rover_id = col1.selectbox("RoverSpec", rover_ids)
+    terrain_id = col2.selectbox("TerrainScenario", terrain_ids)
+    control_id = col3.selectbox("ControlProfile", control_ids)
 
     rover = ROVER_REGISTRY.load(rover_id)
     terrain = TERRAIN_REGISTRY.load(terrain_id)
     control = CONTROL_REGISTRY.load(control_id)
+    st.session_state["selected_rover_id"] = rover_id
+
+    observation_matches = OBSERVATION_REGISTRY.ids_for(terrain_id=terrain_id, control_profile_id=control_id)
+    observation_options = ["<none: use legacy if available>"] + observation_matches
+    contact_matches = CONTACT_PAIR_REGISTRY.ids_for(rover.wheel_material_id, terrain.material_id)
+    contact_options = ["<none: rover fallback>"] + contact_matches
+
+    col4, col5, col6 = st.columns(3)
+    observation_id = col4.selectbox("ScoutObservation", observation_options)
+    contact_pair_id = col5.selectbox("ContactPairSpec", contact_options)
+    backend_id = col6.selectbox("Backend", ["heuristic", "mock_chrono"])
+
+    observation = None if observation_id.startswith("<none") else OBSERVATION_REGISTRY.load(observation_id)
+    contact_pair = None if contact_pair_id.startswith("<none") else CONTACT_PAIR_REGISTRY.load(contact_pair_id)
+    if contact_pair is not None:
+        CONTACT_PAIR_REGISTRY.validate_references(contact_pair, rover, terrain, TERRAIN_MATERIAL_REGISTRY)
+
+    material = TERRAIN_MATERIAL_REGISTRY.load(terrain.material_id) if terrain.material_id in TERRAIN_MATERIAL_REGISTRY.ids() else None
+    if material and material.parameter_source == "assumed":
+        st.info(f"Terrain material `{material.material_id}` uses assumed parameters, confidence={material.confidence:.2f}.")
+    if contact_pair and contact_pair.source == "assumed":
+        st.info(f"Contact pair `{contact_pair.contact_pair_id}` uses assumed parameters, confidence={contact_pair.confidence:.2f}.")
 
     with st.expander("Selected handoff schemas", expanded=False):
-        tabs = st.tabs(["RoverSpec", "TerrainScenario", "ControlProfile"])
+        tabs = st.tabs(["RoverSpec", "TerrainScenario", "ScoutObservation", "ContactPairSpec", "ControlProfile"])
         tabs[0].json(rover.to_dict())
         tabs[1].json(terrain.to_dict())
-        tabs[2].json(control.to_dict())
+        tabs[2].json({} if observation is None else observation.to_dict())
+        tabs[3].json({} if contact_pair is None else contact_pair.to_dict())
+        tabs[4].json(control.to_dict())
 
-    if st.button("Run Experiment", type="secondary"):
+    if st.button("Run Experiment", type="primary"):
         backend = make_backend(backend_id)
-        result = backend.run(rover, terrain, control)
+        result = backend.run(rover, terrain, control, observation=observation, contact_pair=contact_pair)
         output_path = save_simulation_result(result)
         st.session_state["last_simulation_result"] = result
         st.session_state["last_simulation_result_path"] = str(output_path)
 
     result = st.session_state.get("last_simulation_result")
     if result:
+        if result.backend_name == "mock_chrono":
+            st.error(
+                "MOCK CHRONO -- Chrono physics engine이 실행되지 않았습니다. "
+                "표시된 reference 값은 기존 heuristic 결과이며 실제 Chrono 결과가 아닙니다."
+            )
+
         st.subheader("SimulationResult")
-        metric_cols = st.columns(4)
+        metric_cols = st.columns(5)
         metric_cols[0].metric("Backend", result.backend_name)
-        metric_cols[1].metric("Status", result.status)
-        metric_cols[2].metric("Grade", result.grade)
-        metric_cols[3].metric("Risk", f"{result.final_risk:.2f}")
+        metric_cols[1].metric("model_status", result.model_status)
+        metric_cols[2].metric("evaluation_state", result.evaluation_state)
+        metric_cols[3].metric("Grade", result.grade)
+        metric_cols[4].metric("Risk", "N/A" if result.final_risk is None else f"{result.final_risk:.2f}")
 
         path = st.session_state.get("last_simulation_result_path")
         if path:
@@ -157,8 +185,12 @@ def render_integration_experiment() -> None:
             st.write("Risk components")
             st.dataframe(pd.Series(result.risk_components, name="risk").to_frame(), use_container_width=True)
         with right:
-            st.write("Metrics")
-            st.dataframe(pd.Series(result.metrics, name="value").to_frame(), use_container_width=True)
+            st.write("Typed metrics")
+            st.dataframe(pd.Series(result.metrics_typed.to_dict(), name="value").to_frame(), use_container_width=True)
+
+        if result.artifacts:
+            st.write("Reference artifacts")
+            st.json(result.artifacts)
 
         st.write("Full JSON")
         st.json(result.to_dict())
@@ -183,7 +215,7 @@ def plot_traversability_map(results: pd.DataFrame) -> plt.Figure:
     ax.set_ylabel("Grid Y")
     ax.set_aspect("equal")
     ax.invert_yaxis()
-    ax.set_title("Traversability Map")
+    ax.set_title("Main-Rover Mobility Risk Map (Rover-specific Traversability Layer)")
     return fig
 
 
@@ -247,22 +279,14 @@ def render_detail(results: pd.DataFrame) -> None:
         st.dataframe(pd.Series(result_values, name="value").to_frame(), use_container_width=True)
 
 
-def main() -> None:
-    st.set_page_config(page_title="Scout-to-Main Rover Mobility Twin MVP", layout="wide")
-    ensure_sample_csv()
+def render_legacy_risk_map() -> None:
+    st.info("이 탭은 Integration Experiment와 분리된 기존 개념검증 화면입니다.")
+    rover_preset = None
+    selected_rover_id = st.session_state.get("selected_rover_id")
+    if selected_rover_id and st.checkbox("Use selected RoverSpec as MainRoverConfig defaults"):
+        rover_preset = ROVER_REGISTRY.load(selected_rover_id)
 
-    st.title("Scout-to-Main Rover Mobility Twin MVP")
-    st.write(
-        "정찰로버가 측정한 최소 물리량을 메인로버 제원에 맞게 변환하여, "
-        "로버 종속적인 통과 위험도를 계산하는 개념 검증 데모입니다."
-    )
-    st.caption("Slip/sinkage 변환은 검증된 최종 모델이 아니라 MVP용 scaling heuristic입니다.")
-
-    render_integration_experiment()
-    st.divider()
-    st.header("Existing CSV Risk Map MVP")
-
-    main_config, scout_reference = sidebar_configs()
+    main_config, scout_reference = sidebar_configs(rover_preset)
     source = pd.read_csv(SAMPLE_CSV)
     edited = st.data_editor(source, use_container_width=True, num_rows="dynamic")
 
@@ -272,27 +296,35 @@ def main() -> None:
     results = st.session_state["last_results"]
     st.subheader("Patch risk table")
     st.dataframe(
-        results[
-            [
-                "patch_id",
-                "grid_x",
-                "grid_y",
-                "terrain_label",
-                "risk_score",
-                "grade",
-                "hard_failure_reasons",
-            ]
-        ],
+        results[["patch_id", "grid_x", "grid_y", "terrain_label", "risk_score", "grade", "hard_failure_reasons"]],
         use_container_width=True,
         hide_index=True,
     )
 
     render_summary(results)
 
-    st.subheader("Traversability Map")
+    st.subheader("Main-Rover Mobility Risk Map (Rover-specific Traversability Layer)")
     st.pyplot(plot_traversability_map(results))
 
     render_detail(results)
+
+
+def main() -> None:
+    st.set_page_config(page_title="Scout-to-Main Rover Mobility Twin MVP", layout="wide")
+    ensure_sample_csv()
+
+    st.title("Scout-to-Main Rover Mobility Twin MVP")
+    st.write(
+        "정찰로버가 측정한 최소 물리량을 메인로버 제원에 맞게 변환하여, "
+        "로버 종속적인 통과 위험도를 계산하는 Integration Contract MVP입니다."
+    )
+    st.caption("최종 출력 명칭: Main-Rover Mobility Risk Map (Rover-specific Traversability Layer).")
+
+    tab_integration, tab_legacy = st.tabs(["Integration Experiment", "Legacy Heuristic Risk Map"])
+    with tab_integration:
+        render_integration_experiment()
+    with tab_legacy:
+        render_legacy_risk_map()
 
 
 if __name__ == "__main__":

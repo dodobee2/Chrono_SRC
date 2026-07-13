@@ -1,0 +1,22 @@
+rover_id: rover_id_here
+display_name: Rover Display Name
+mass_kg: 0.0
+wheel_radius_m: 0.0
+wheel_width_m: 0.0
+wheelbase_m: 0.0
+track_width_m: 0.0
+cg_height_m: 0.0
+ground_clearance_m: 0.0
+driven_wheel_count: 0
+max_wheel_torque_nm: 0.0
+wheel_material_id: wheel_material_id_here
+wheel_contact_model: model_name_here
+fallback_mu_eff:
+fallback_crr:
+model_uri: relative/path/or/factory_uri
+metadata:
+  owner:
+  coordinate_convention:
+  command_type:
+  build_run_requirements:
+

@@ -1,0 +1,45 @@
+terrain_id: terrain_id_here
+display_name: Terrain Display Name
+terrain_type: unknown
+surface_hint: unknown
+material_id: terrain_material_id_here
+dimensions_xyz_m: [1.0, 1.0, 0.1]
+frame_id: terrain_frame
+random_seed: 0
+geometry:
+  source_type: unknown
+  asset_uri:
+  factory_uri:
+  scale_xyz: [1.0, 1.0, 1.0]
+  frame_id: terrain_frame
+  coordinate_convention: Chrono_XForward_YLeft_ZUp
+  origin_pose:
+    xyz_m: [0.0, 0.0, 0.0]
+    rpy_deg: [0.0, 0.0, 0.0]
+slope_long_deg: 0.0
+slope_lat_deg: 0.0
+roughness_m: 0.0
+gap_width_m: 0.0
+patch_id: 0
+grid_x: 0
+grid_y: 0
+observation_state: GEOMETRY_ONLY
+geometry_confidence: 0.0
+prediction_confidence: 0.0
+obstacles:
+  - obstacle_id: obstacle_id_here
+    kind: generic
+    pose:
+      xyz_m: [0.0, 0.0, 0.0]
+      rpy_deg: [0.0, 0.0, 0.0]
+    dimensions_xyz_m: [0.0, 0.0, 0.0]
+    radius_m: 0.0
+    collision_uri:
+    visual_uri:
+    material_id: terrain_material_id_here
+    is_fixed: true
+    metadata: {}
+metadata:
+  owner:
+  build_run_requirements:
+

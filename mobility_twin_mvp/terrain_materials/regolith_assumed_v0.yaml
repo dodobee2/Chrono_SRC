@@ -1,0 +1,11 @@
+material_id: regolith_assumed_v0
+model_type: rigid
+friction_nominal: 0.65
+rolling_resistance_nominal: 0.08
+restitution: 0.05
+scm_parameters: {}
+parameter_source: assumed
+confidence: 0.35
+metadata:
+  note: Low-confidence assumed material until measured terrain properties arrive.
+

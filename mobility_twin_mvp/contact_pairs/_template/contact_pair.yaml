@@ -1,0 +1,11 @@
+contact_pair_id: contact_pair_id_here
+wheel_material_id: wheel_material_id_here
+terrain_material_id: terrain_material_id_here
+mu_eff:
+crr_eff:
+source: assumed
+confidence: 0.0
+metadata:
+  owner:
+  measurement_method:
+

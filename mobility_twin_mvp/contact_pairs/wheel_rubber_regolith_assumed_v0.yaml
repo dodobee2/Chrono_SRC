@@ -1,0 +1,10 @@
+contact_pair_id: wheel_rubber_regolith_assumed_v0
+wheel_material_id: wheel_rubber_v0
+terrain_material_id: regolith_assumed_v0
+mu_eff: 0.65
+crr_eff: 0.08
+source: assumed
+confidence: 0.35
+metadata:
+  note: Assumed contact pair for integration contract testing only.
+

@@ -2,6 +2,20 @@ terrain_id: T01_flat
 display_name: T01 Flat Rigid Patch
 terrain_type: rigid
 surface_hint: rigid_flat
+material_id: regolith_assumed_v0
+dimensions_xyz_m: [2.0, 2.0, 0.2]
+frame_id: terrain_T01
+random_seed: 101
+geometry:
+  source_type: procedural
+  asset_uri:
+  factory_uri:
+  scale_xyz: [1.0, 1.0, 1.0]
+  frame_id: terrain_T01
+  coordinate_convention: Chrono_XForward_YLeft_ZUp
+  origin_pose:
+    xyz_m: [0.0, 0.0, 0.0]
+    rpy_deg: [0.0, 0.0, 0.0]
 slope_long_deg: 1.0
 slope_lat_deg: 0.5
 roughness_m: 0.006
@@ -9,6 +23,9 @@ gap_width_m: 0.0
 patch_id: 101
 grid_x: 0
 grid_y: 0
+observation_state: SCOUT_OBSERVED
+geometry_confidence: 0.7
+prediction_confidence: 0.0
 obstacles: []
 scout_response:
   scout_slip: 0.03
@@ -19,4 +36,3 @@ scout_response:
 metadata:
   owner: Jongmin terrain model team
   note: Scenario-level placeholder; future terrain factory may replace this with mesh/height/SCM data.
-
