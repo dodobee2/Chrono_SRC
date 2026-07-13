@@ -716,8 +716,8 @@ class SimulationResult:
     artifacts: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.status not in {"ok", "mock", "not_implemented", "not_evaluated", "failed"}:
-            raise ValueError("status must be ok, mock, not_implemented, not_evaluated, or failed")
+        if self.status not in {"ok", "completed", "mock", "not_implemented", "not_evaluated", "failed", "timeout"}:
+            raise ValueError("status must be ok, completed, mock, not_implemented, not_evaluated, failed, or timeout")
         _require_nonnegative("duration_s", self.duration_s)
         if self.final_risk is not None and not 0.0 <= self.final_risk <= 1.0:
             raise ValueError("final_risk must be in 0..1 or None")
@@ -807,4 +807,3 @@ class SimulationResult:
         result = asdict(self)
         result["metrics_typed"] = self.metrics_typed.to_dict()
         return result
-

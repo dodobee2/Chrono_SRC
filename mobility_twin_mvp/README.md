@@ -52,6 +52,55 @@ Backends:
 
 - `heuristic`: wraps the existing MVP equations. It requires `ScoutObservation` or a deprecated legacy `TerrainScenario.scout_response`.
 - `mock_chrono`: does not run Chrono physics. It returns `evaluation_state=NOT_EVALUATED`, `final_risk=None`, and stores heuristic comparison values only under `artifacts`.
+- `pychrono_smoke`: runs a real headless PyChrono box-drop smoke scenario when PyChrono is importable in the active Python environment. It does not evaluate rover mobility risk.
+
+## PyChrono Smoke Integration
+
+The Streamlit `Integration Experiment` tab includes a `PyChrono Environment` panel:
+
+- Python executable
+- PyChrono availability
+- `pychrono.vehicle` availability
+- module path
+- version when discoverable
+- diagnostic message
+
+The `Run PyChrono Smoke` button calls a pure Python backend path:
+
+```text
+app.py
+  -> src.backends.make_backend("pychrono_smoke")
+  -> src.chrono.pychrono_backend.PyChronoSmokeBackend
+  -> src.chrono.smoke_scenario.run_smoke_scenario()
+```
+
+The smoke scenario uses:
+
+- `ChSystemNSC` when available, otherwise a compatible current PyChrono contact system if present
+- gravity `[0, 0, -9.81]`
+- fixed rigid floor
+- 1 kg box
+- initial box position `[0, 0, 1]`
+- duration `3 s`
+- step size `0.001 s`
+- no visualization
+
+Outputs are written under `data/chrono_smoke/` when the smoke run completes:
+
+- `trajectory.csv`
+- `result.json`
+- `runner.log`
+
+The returned `SimulationResult` always uses:
+
+```text
+model_status = chrono_smoke
+evaluation_state = NOT_EVALUATED
+final_risk = None
+grade = NOT_EVALUATED
+```
+
+This smoke result is not included in Safe/Caution/Risk statistics.
 
 ## Handoff Files
 
@@ -150,4 +199,3 @@ The replacement point is `src/backends.py`, especially `MockChronoBackend`. A re
 - `result_extractor`: Chrono pose, slip, sinkage, torque, contact, energy, rollover/stall events to `SimulationResult`
 
 No actual PyChrono install, Chrono C++ build, rover CAD generation, collision model invention, or SCM/DEM parameter identification is performed in this stage.
-

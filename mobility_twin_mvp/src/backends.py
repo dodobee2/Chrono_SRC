@@ -237,5 +237,8 @@ def make_backend(backend_id: str) -> MobilityBackend:
         return HeuristicBackend()
     if backend_id == "mock_chrono":
         return MockChronoBackend()
-    raise ValueError(f"unknown backend: {backend_id}")
+    if backend_id == "pychrono_smoke":
+        from .chrono.pychrono_backend import PyChronoSmokeBackend
 
+        return PyChronoSmokeBackend()
+    raise ValueError(f"unknown backend: {backend_id}")

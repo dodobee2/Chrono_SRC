@@ -21,6 +21,7 @@ env/
 outputs/
 data/chrono_outputs/
 mobility_twin_mvp/data/experiment_results/
+mobility_twin_mvp/data/chrono_smoke/
 *.log
 
 # IDE / OS

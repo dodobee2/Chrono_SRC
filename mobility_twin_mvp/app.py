@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from src.backends import make_backend
+from src.chrono.availability import get_pychrono_availability
 from src.integration_schemas import RoverSpec, SimulationResult
 from src.registries import (
     ContactPairRegistry,
@@ -55,6 +56,66 @@ def save_simulation_result(result: SimulationResult) -> Path:
     with output_path.open("w", encoding="utf-8") as handle:
         json.dump(result.to_dict(), handle, indent=2)
     return output_path
+
+
+def render_pychrono_environment() -> None:
+    availability = get_pychrono_availability()
+    st.subheader("PyChrono Environment")
+    cols = st.columns(4)
+    cols[0].metric("PyChrono", "Available" if availability.pychrono_available else "Unavailable")
+    cols[1].metric("Vehicle module", "Available" if availability.vehicle_module_available else "Unavailable")
+    cols[2].metric("Version", availability.version or "unknown")
+    cols[3].metric("Python", Path(availability.python_executable).name)
+    st.caption(f"Python executable: {availability.python_executable}")
+    st.caption(f"Module path: {availability.pychrono_module_path or '-'}")
+    if availability.pychrono_available:
+        st.success(availability.diagnostic_message)
+    else:
+        st.warning(availability.diagnostic_message)
+
+
+def render_simulation_result(result: SimulationResult, path: str | None = None) -> None:
+    if result.backend_name == "mock_chrono":
+        st.error(
+            "MOCK CHRONO -- Chrono physics engine이 실행되지 않았습니다. "
+            "표시된 reference 값은 기존 heuristic 결과이며 실제 Chrono 결과가 아닙니다."
+        )
+    if result.backend_name == "pychrono_smoke":
+        st.info("PyChrono Smoke는 1 kg box-drop 환경 점검이며 rover mobility risk를 계산하지 않습니다.")
+
+    st.subheader("SimulationResult")
+    metric_cols = st.columns(5)
+    metric_cols[0].metric("Backend", result.backend_name)
+    metric_cols[1].metric("model_status", result.model_status)
+    metric_cols[2].metric("evaluation_state", result.evaluation_state)
+    metric_cols[3].metric("Grade", result.grade)
+    metric_cols[4].metric("Risk", "N/A" if result.final_risk is None else f"{result.final_risk:.2f}")
+
+    if path:
+        st.caption(f"Saved JSON: {path}")
+
+    left, right = st.columns(2)
+    with left:
+        st.write("Risk components")
+        st.dataframe(pd.Series(result.risk_components, name="risk").to_frame(), use_container_width=True)
+    with right:
+        st.write("Typed metrics")
+        st.dataframe(pd.Series(result.metrics_typed.to_dict(), name="value").to_frame(), use_container_width=True)
+
+    trajectory_csv = result.artifacts.get("trajectory_csv") if result.artifacts else None
+    if trajectory_csv and Path(trajectory_csv).exists():
+        trajectory = pd.read_csv(trajectory_csv)
+        st.write("Trajectory")
+        st.dataframe(trajectory, use_container_width=True)
+        if "time_s" in trajectory and "position_z_m" in trajectory:
+            st.line_chart(trajectory.set_index("time_s")["position_z_m"])
+
+    if result.artifacts:
+        st.write("Artifacts")
+        st.json(result.artifacts)
+
+    st.write("Full JSON")
+    st.json(result.to_dict())
 
 
 def sidebar_configs(rover_preset: RoverSpec | None = None) -> tuple[MainRoverConfig, ScoutReferenceConfig]:
@@ -106,6 +167,7 @@ def render_integration_experiment() -> None:
         "Integration Contract MVP: RoverSpec + TerrainScenario + ScoutObservation + ContactPairSpec + "
         "ControlProfile을 공통 SimulationResult로 연결합니다."
     )
+    render_pychrono_environment()
 
     rover_ids = ROVER_REGISTRY.ids()
     terrain_ids = TERRAIN_REGISTRY.ids()
@@ -132,7 +194,7 @@ def render_integration_experiment() -> None:
     col4, col5, col6 = st.columns(3)
     observation_id = col4.selectbox("ScoutObservation", observation_options)
     contact_pair_id = col5.selectbox("ContactPairSpec", contact_options)
-    backend_id = col6.selectbox("Backend", ["heuristic", "mock_chrono"])
+    backend_id = col6.selectbox("Mock/heuristic backend", ["heuristic", "mock_chrono"])
 
     observation = None if observation_id.startswith("<none") else OBSERVATION_REGISTRY.load(observation_id)
     contact_pair = None if contact_pair_id.startswith("<none") else CONTACT_PAIR_REGISTRY.load(contact_pair_id)
@@ -153,47 +215,29 @@ def render_integration_experiment() -> None:
         tabs[3].json({} if contact_pair is None else contact_pair.to_dict())
         tabs[4].json(control.to_dict())
 
-    if st.button("Run Experiment", type="primary"):
+    col_run_1, col_run_2 = st.columns(2)
+    if col_run_1.button("Run Experiment", type="primary"):
         backend = make_backend(backend_id)
         result = backend.run(rover, terrain, control, observation=observation, contact_pair=contact_pair)
         output_path = save_simulation_result(result)
         st.session_state["last_simulation_result"] = result
         st.session_state["last_simulation_result_path"] = str(output_path)
 
+    if col_run_2.button("Run PyChrono Smoke"):
+        with st.status("RUNNING", expanded=True) as status:
+            backend = make_backend("pychrono_smoke")
+            result = backend.run(rover, terrain, control, observation=observation, contact_pair=contact_pair)
+            output_path = save_simulation_result(result)
+            st.session_state["last_simulation_result"] = result
+            st.session_state["last_simulation_result_path"] = str(output_path)
+            if result.status == "completed":
+                status.update(label="COMPLETED", state="complete")
+            else:
+                status.update(label="FAILED", state="error")
+
     result = st.session_state.get("last_simulation_result")
     if result:
-        if result.backend_name == "mock_chrono":
-            st.error(
-                "MOCK CHRONO -- Chrono physics engine이 실행되지 않았습니다. "
-                "표시된 reference 값은 기존 heuristic 결과이며 실제 Chrono 결과가 아닙니다."
-            )
-
-        st.subheader("SimulationResult")
-        metric_cols = st.columns(5)
-        metric_cols[0].metric("Backend", result.backend_name)
-        metric_cols[1].metric("model_status", result.model_status)
-        metric_cols[2].metric("evaluation_state", result.evaluation_state)
-        metric_cols[3].metric("Grade", result.grade)
-        metric_cols[4].metric("Risk", "N/A" if result.final_risk is None else f"{result.final_risk:.2f}")
-
-        path = st.session_state.get("last_simulation_result_path")
-        if path:
-            st.caption(f"Saved JSON: {path}")
-
-        left, right = st.columns(2)
-        with left:
-            st.write("Risk components")
-            st.dataframe(pd.Series(result.risk_components, name="risk").to_frame(), use_container_width=True)
-        with right:
-            st.write("Typed metrics")
-            st.dataframe(pd.Series(result.metrics_typed.to_dict(), name="value").to_frame(), use_container_width=True)
-
-        if result.artifacts:
-            st.write("Reference artifacts")
-            st.json(result.artifacts)
-
-        st.write("Full JSON")
-        st.json(result.to_dict())
+        render_simulation_result(result, st.session_state.get("last_simulation_result_path"))
 
 
 def plot_traversability_map(results: pd.DataFrame) -> plt.Figure:
