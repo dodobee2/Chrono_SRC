@@ -1,0 +1,10 @@
+profile_id: nominal_traverse
+display_name: Nominal Traverse
+target_speed_mps: 0.25
+duration_s: 8.0
+throttle: 0.55
+steering_deg: 0.0
+drive_mode: velocity_hold
+metadata:
+  note: Default profile for comparing heuristic and mock Chrono outputs.
+

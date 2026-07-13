@@ -1,0 +1,22 @@
+terrain_id: T01_flat
+display_name: T01 Flat Rigid Patch
+terrain_type: rigid
+surface_hint: rigid_flat
+slope_long_deg: 1.0
+slope_lat_deg: 0.5
+roughness_m: 0.006
+gap_width_m: 0.0
+patch_id: 101
+grid_x: 0
+grid_y: 0
+obstacles: []
+scout_response:
+  scout_slip: 0.03
+  scout_sinkage_m: 0.004
+  scout_wheel_torque_nm: 0.4
+  scout_cot: 0.35
+  vibration_rms_g: 0.05
+metadata:
+  owner: Jongmin terrain model team
+  note: Scenario-level placeholder; future terrain factory may replace this with mesh/height/SCM data.
+

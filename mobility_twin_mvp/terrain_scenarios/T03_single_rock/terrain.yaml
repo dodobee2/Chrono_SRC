@@ -1,0 +1,29 @@
+terrain_id: T03_single_rock
+display_name: T03 Single Rock
+terrain_type: rocky
+surface_hint: obstacle_step
+slope_long_deg: 5.0
+slope_lat_deg: 2.0
+roughness_m: 0.035
+gap_width_m: 0.03
+patch_id: 103
+grid_x: 2
+grid_y: 0
+obstacles:
+  - obstacle_id: rock_001
+    kind: rock
+    x_m: 0.6
+    y_m: 0.0
+    height_m: 0.075
+    width_m: 0.18
+    length_m: 0.22
+    radius_m: 0.09
+scout_response:
+  scout_slip: 0.16
+  scout_sinkage_m: 0.014
+  scout_wheel_torque_nm: 1.4
+  scout_cot: 1.05
+  vibration_rms_g: 0.45
+metadata:
+  owner: Jongmin terrain model team
+

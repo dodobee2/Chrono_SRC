@@ -1,0 +1,300 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
+import pandas as pd
+import streamlit as st
+
+from src.backends import make_backend
+from src.integration_schemas import SimulationResult
+from src.registries import ControlProfileRegistry, RoverRegistry, TerrainRegistry
+from src.risk_fusion import analyze_dataframe
+from src.sample_generator import save_sample_csv
+from src.schemas import DEFAULT_MAIN_ROVER, DEFAULT_SCOUT_REFERENCE, MainRoverConfig, ScoutReferenceConfig
+
+
+APP_DIR = Path(__file__).resolve().parent
+SAMPLE_CSV = APP_DIR / "data" / "sample_patches.csv"
+EXPERIMENT_OUTPUT_DIR = APP_DIR / "data" / "experiment_results"
+ROVER_REGISTRY = RoverRegistry(APP_DIR / "rover_models")
+TERRAIN_REGISTRY = TerrainRegistry(APP_DIR / "terrain_scenarios")
+CONTROL_REGISTRY = ControlProfileRegistry(APP_DIR / "control_profiles")
+
+
+GRADE_COLORS = {
+    "Safe": "#2ca25f",
+    "Caution": "#f1c40f",
+    "Risk": "#de2d26",
+    "Unknown": "#9e9e9e",
+}
+
+
+def ensure_sample_csv() -> None:
+    if not SAMPLE_CSV.exists():
+        save_sample_csv(SAMPLE_CSV)
+
+
+def save_simulation_result(result: SimulationResult) -> Path:
+    EXPERIMENT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = EXPERIMENT_OUTPUT_DIR / f"{result.experiment_id}.json"
+    with output_path.open("w", encoding="utf-8") as handle:
+        json.dump(result.to_dict(), handle, indent=2)
+    return output_path
+
+
+def sidebar_configs() -> tuple[MainRoverConfig, ScoutReferenceConfig]:
+    st.sidebar.header("Main rover")
+    main = MainRoverConfig(
+        mass_kg=st.sidebar.number_input("Mass (kg)", min_value=1.0, value=DEFAULT_MAIN_ROVER.mass_kg, step=1.0),
+        wheel_radius_m=st.sidebar.number_input(
+            "Wheel radius (m)", min_value=0.01, value=DEFAULT_MAIN_ROVER.wheel_radius_m, step=0.01
+        ),
+        wheel_width_m=st.sidebar.number_input(
+            "Wheel width (m)", min_value=0.01, value=DEFAULT_MAIN_ROVER.wheel_width_m, step=0.01
+        ),
+        wheelbase_m=st.sidebar.number_input(
+            "Wheelbase (m)", min_value=0.05, value=DEFAULT_MAIN_ROVER.wheelbase_m, step=0.05
+        ),
+        track_width_m=st.sidebar.number_input(
+            "Track width (m)", min_value=0.05, value=DEFAULT_MAIN_ROVER.track_width_m, step=0.05
+        ),
+        cg_height_m=st.sidebar.number_input(
+            "CG height (m)", min_value=0.02, value=DEFAULT_MAIN_ROVER.cg_height_m, step=0.01
+        ),
+        ground_clearance_m=st.sidebar.number_input(
+            "Ground clearance (m)", min_value=0.01, value=DEFAULT_MAIN_ROVER.ground_clearance_m, step=0.01
+        ),
+        driven_wheel_count=st.sidebar.number_input(
+            "Driven wheel count", min_value=1, max_value=12, value=DEFAULT_MAIN_ROVER.driven_wheel_count, step=1
+        ),
+        max_wheel_torque_nm=st.sidebar.number_input(
+            "Max wheel torque (Nm)", min_value=0.1, value=DEFAULT_MAIN_ROVER.max_wheel_torque_nm, step=1.0
+        ),
+        mu_eff=st.sidebar.number_input(
+            "Effective mu", min_value=0.01, max_value=2.0, value=DEFAULT_MAIN_ROVER.mu_eff, step=0.05
+        ),
+        crr=st.sidebar.number_input(
+            "Rolling resistance Crr", min_value=0.0, max_value=1.0, value=DEFAULT_MAIN_ROVER.crr, step=0.01
+        ),
+    )
+
+    st.sidebar.header("Scout reference")
+    scout = ScoutReferenceConfig(
+        mass_kg=st.sidebar.number_input("Scout mass (kg)", min_value=0.1, value=DEFAULT_SCOUT_REFERENCE.mass_kg, step=0.5),
+        wheel_radius_m=st.sidebar.number_input(
+            "Scout wheel radius (m)", min_value=0.005, value=DEFAULT_SCOUT_REFERENCE.wheel_radius_m, step=0.005
+        ),
+        wheel_width_m=st.sidebar.number_input(
+            "Scout wheel width (m)", min_value=0.005, value=DEFAULT_SCOUT_REFERENCE.wheel_width_m, step=0.005
+        ),
+        wheel_load_n=st.sidebar.number_input(
+            "Scout wheel load (N)", min_value=0.1, value=DEFAULT_SCOUT_REFERENCE.wheel_load_n, step=1.0
+        ),
+    )
+
+    if st.sidebar.button("Regenerate sample CSV"):
+        save_sample_csv(SAMPLE_CSV)
+        st.sidebar.success("sample_patches.csv regenerated")
+
+    return main, scout
+
+
+def render_integration_experiment() -> None:
+    st.header("Integration Experiment")
+    st.caption(
+        "RoverSpec, TerrainScenario, ControlProfile을 공통 SimulationResult로 연결하는 skeleton입니다. "
+        "Mock Chrono는 실제 PyChrono, CAD, collision, wheel, SCM/DEM 모델을 만들지 않습니다."
+    )
+
+    rover_ids = ROVER_REGISTRY.ids()
+    terrain_ids = TERRAIN_REGISTRY.ids()
+    control_ids = CONTROL_REGISTRY.ids()
+    if not rover_ids or not terrain_ids or not control_ids:
+        st.warning("Registry YAML files are missing. Check rover_models, terrain_scenarios, and control_profiles.")
+        return
+
+    col1, col2, col3, col4 = st.columns(4)
+    rover_id = col1.selectbox("Rover model", rover_ids)
+    terrain_id = col2.selectbox("Terrain scenario", terrain_ids)
+    control_id = col3.selectbox("Control profile", control_ids)
+    backend_id = col4.selectbox("Backend", ["heuristic", "mock_chrono"])
+
+    rover = ROVER_REGISTRY.load(rover_id)
+    terrain = TERRAIN_REGISTRY.load(terrain_id)
+    control = CONTROL_REGISTRY.load(control_id)
+
+    with st.expander("Selected handoff schemas", expanded=False):
+        tabs = st.tabs(["RoverSpec", "TerrainScenario", "ControlProfile"])
+        tabs[0].json(rover.to_dict())
+        tabs[1].json(terrain.to_dict())
+        tabs[2].json(control.to_dict())
+
+    if st.button("Run Experiment", type="secondary"):
+        backend = make_backend(backend_id)
+        result = backend.run(rover, terrain, control)
+        output_path = save_simulation_result(result)
+        st.session_state["last_simulation_result"] = result
+        st.session_state["last_simulation_result_path"] = str(output_path)
+
+    result = st.session_state.get("last_simulation_result")
+    if result:
+        st.subheader("SimulationResult")
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("Backend", result.backend_name)
+        metric_cols[1].metric("Status", result.status)
+        metric_cols[2].metric("Grade", result.grade)
+        metric_cols[3].metric("Risk", f"{result.final_risk:.2f}")
+
+        path = st.session_state.get("last_simulation_result_path")
+        if path:
+            st.caption(f"Saved JSON: {path}")
+
+        left, right = st.columns(2)
+        with left:
+            st.write("Risk components")
+            st.dataframe(pd.Series(result.risk_components, name="risk").to_frame(), use_container_width=True)
+        with right:
+            st.write("Metrics")
+            st.dataframe(pd.Series(result.metrics, name="value").to_frame(), use_container_width=True)
+
+        st.write("Full JSON")
+        st.json(result.to_dict())
+
+
+def plot_traversability_map(results: pd.DataFrame) -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for _, row in results.iterrows():
+        x = int(row["grid_x"])
+        y = int(row["grid_y"])
+        grade = str(row["grade"])
+        color = GRADE_COLORS.get(grade, GRADE_COLORS["Unknown"])
+        rect = patches.Rectangle((x - 0.5, y - 0.5), 1, 1, facecolor=color, edgecolor="white", linewidth=2)
+        ax.add_patch(rect)
+        ax.text(x, y, f'{int(row["risk_score"])}', ha="center", va="center", color="black", fontsize=11, weight="bold")
+
+    ax.set_xlim(results["grid_x"].min() - 0.5, results["grid_x"].max() + 0.5)
+    ax.set_ylim(results["grid_y"].min() - 0.5, results["grid_y"].max() + 0.5)
+    ax.set_xticks(sorted(results["grid_x"].unique()))
+    ax.set_yticks(sorted(results["grid_y"].unique()))
+    ax.set_xlabel("Grid X")
+    ax.set_ylabel("Grid Y")
+    ax.set_aspect("equal")
+    ax.invert_yaxis()
+    ax.set_title("Traversability Map")
+    return fig
+
+
+def render_summary(results: pd.DataFrame) -> None:
+    terrain_counts = results["terrain_label"].value_counts().rename_axis("terrain_label").reset_index(name="patch_count")
+    st.subheader("Terrain classification counts")
+    st.dataframe(terrain_counts, use_container_width=True, hide_index=True)
+
+    safe_count = int((results["grade"] == "Safe").sum())
+    caution_count = int((results["grade"] == "Caution").sum())
+    risk_count = int((results["grade"] == "Risk").sum())
+    avg_risk = float(results["final_risk"].mean())
+    worst = results.sort_values("final_risk", ascending=False).iloc[0]
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Safe", safe_count)
+    col2.metric("Caution", caution_count)
+    col3.metric("Risk", risk_count)
+    col4.metric("Average risk", f"{avg_risk:.2f}")
+    col5.metric("Highest-risk patch", f'#{int(worst["patch_id"])}', f'{int(worst["risk_score"])}')
+
+
+def render_detail(results: pd.DataFrame) -> None:
+    st.subheader("Patch detail")
+    selected_patch = st.selectbox("Patch", results["patch_id"].astype(int).tolist())
+    row = results.loc[results["patch_id"] == selected_patch].iloc[0]
+
+    left, right = st.columns(2)
+    with left:
+        st.write("Measurement")
+        measurement_cols = [
+            "slope_long_deg",
+            "slope_lat_deg",
+            "roughness_m",
+            "obstacle_height_m",
+            "gap_width_m",
+            "scout_slip",
+            "scout_sinkage_m",
+            "scout_wheel_torque_nm",
+            "scout_cot",
+            "vibration_rms_g",
+            "surface_hint",
+        ]
+        st.dataframe(row[measurement_cols].to_frame("value"), use_container_width=True)
+    with right:
+        st.write("Result")
+        result_values = {
+            "terrain_label": row["terrain_label"],
+            "terrain_reason": row["terrain_reason"],
+            "F_req_N": f'{row["physics_f_req_n"]:.2f}',
+            "F_avail_N": f'{row["physics_f_avail_n"]:.2f}',
+            "traction_margin_N": f'{row["physics_traction_margin_n"]:.2f}',
+            "tipover_margin_deg": f'{row["physics_tipover_margin_deg"]:.2f}',
+            "obstacle_ratio": f'{row["physics_obstacle_ratio"]:.2f}',
+            "predicted_slip": f'{row["physics_predicted_main_slip"]:.2f}',
+            "predicted_sinkage_m": f'{row["physics_predicted_main_sinkage_m"]:.3f}',
+            "final_risk": f'{row["final_risk"]:.2f}',
+            "grade": row["grade"],
+            "hard_failure_reasons": row["hard_failure_reasons"] or "-",
+        }
+        st.dataframe(pd.Series(result_values, name="value").to_frame(), use_container_width=True)
+
+
+def main() -> None:
+    st.set_page_config(page_title="Scout-to-Main Rover Mobility Twin MVP", layout="wide")
+    ensure_sample_csv()
+
+    st.title("Scout-to-Main Rover Mobility Twin MVP")
+    st.write(
+        "정찰로버가 측정한 최소 물리량을 메인로버 제원에 맞게 변환하여, "
+        "로버 종속적인 통과 위험도를 계산하는 개념 검증 데모입니다."
+    )
+    st.caption("Slip/sinkage 변환은 검증된 최종 모델이 아니라 MVP용 scaling heuristic입니다.")
+
+    render_integration_experiment()
+    st.divider()
+    st.header("Existing CSV Risk Map MVP")
+
+    main_config, scout_reference = sidebar_configs()
+    source = pd.read_csv(SAMPLE_CSV)
+    edited = st.data_editor(source, use_container_width=True, num_rows="dynamic")
+
+    if st.button("Calculate patch risks", type="primary") or "last_results" not in st.session_state:
+        st.session_state["last_results"] = analyze_dataframe(edited, main_config, scout_reference)
+
+    results = st.session_state["last_results"]
+    st.subheader("Patch risk table")
+    st.dataframe(
+        results[
+            [
+                "patch_id",
+                "grid_x",
+                "grid_y",
+                "terrain_label",
+                "risk_score",
+                "grade",
+                "hard_failure_reasons",
+            ]
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    render_summary(results)
+
+    st.subheader("Traversability Map")
+    st.pyplot(plot_traversability_map(results))
+
+    render_detail(results)
+
+
+if __name__ == "__main__":
+    main()
+

@@ -1,0 +1,21 @@
+terrain_id: T02_slope
+display_name: T02 Rigid Slope Patch
+terrain_type: rigid
+surface_hint: rigid_slope
+slope_long_deg: 17.0
+slope_lat_deg: 7.0
+roughness_m: 0.018
+gap_width_m: 0.02
+patch_id: 102
+grid_x: 1
+grid_y: 0
+obstacles: []
+scout_response:
+  scout_slip: 0.11
+  scout_sinkage_m: 0.010
+  scout_wheel_torque_nm: 1.1
+  scout_cot: 0.85
+  vibration_rms_g: 0.12
+metadata:
+  owner: Jongmin terrain model team
+

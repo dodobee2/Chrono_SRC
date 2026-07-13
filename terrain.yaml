@@ -1,0 +1,45 @@
+terrain_id: T04_rock_field
+display_name: T04 Rock Field
+terrain_type: mixed
+surface_hint: mixed
+slope_long_deg: 12.0
+slope_lat_deg: 9.0
+roughness_m: 0.075
+gap_width_m: 0.12
+patch_id: 104
+grid_x: 3
+grid_y: 0
+obstacles:
+  - obstacle_id: rock_001
+    kind: rock
+    x_m: 0.35
+    y_m: -0.25
+    height_m: 0.055
+    width_m: 0.16
+    length_m: 0.19
+    radius_m: 0.08
+  - obstacle_id: rock_002
+    kind: rock
+    x_m: 0.75
+    y_m: 0.18
+    height_m: 0.095
+    width_m: 0.22
+    length_m: 0.24
+    radius_m: 0.11
+  - obstacle_id: ridge_001
+    kind: ridge
+    x_m: 1.1
+    y_m: 0.0
+    height_m: 0.060
+    width_m: 0.60
+    length_m: 0.12
+    radius_m: 0.0
+scout_response:
+  scout_slip: 0.34
+  scout_sinkage_m: 0.042
+  scout_wheel_torque_nm: 2.0
+  scout_cot: 1.85
+  vibration_rms_g: 0.90
+metadata:
+  owner: Jongmin terrain model team
+
