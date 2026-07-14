@@ -1,0 +1,25 @@
+material_id: loose_sand_scm_v0
+model_type: scm
+friction_nominal:
+rolling_resistance_nominal:
+restitution: 0.01
+scm_parameters:
+  bekker_kphi: 150000.0
+  bekker_kc: 0.0
+  bekker_n: 1.10
+  mohr_cohesion: 0.0
+  mohr_friction_angle_deg: 28.0
+  janosi_shear_m: 0.02
+  elastic_stiffness: 15000000.0
+  damping: 20000.0
+  grid_spacing_m: 0.025
+parameter_source: assumed
+confidence: 0.3
+metadata:
+  owner: Jongmin terrain model team
+  source: handoff/map.py (2026-07-14), SCM_BEKER_*/SCM_MOHR_*/SCM_JANOSI_SHEAR/SCM_ELASTIC_STIFFNESS/SCM_DAMPING/SCM_GRID_SPACING constants
+  note: >
+    Loose, non-cohesive test-sand values copied from the competition arena's
+    SCM particle zone. Not yet measured against real regolith/sand -- treat
+    as a placeholder until a calibration pass (PDF section 05, Chrono
+    Implementation) replaces these with fitted parameters.

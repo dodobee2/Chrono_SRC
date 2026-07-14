@@ -1,0 +1,25 @@
+material_id: medium_soil_scm_v0
+model_type: scm
+friction_nominal:
+rolling_resistance_nominal:
+restitution: 0.02
+scm_parameters:
+  bekker_kphi: 500000.0
+  bekker_kc: 1000.0
+  bekker_n: 1.0
+  mohr_cohesion: 200.0
+  mohr_friction_angle_deg: 32.0
+  janosi_shear_m: 0.015
+  elastic_stiffness: 30000000.0
+  damping: 30000.0
+  grid_spacing_m: 0.025
+parameter_source: assumed
+confidence: 0.2
+metadata:
+  owner: scm_pilot (2026-07-14)
+  note: >
+    Not measured. Interpolated between loose_sand_scm_v0 and firm_soil_scm_v0
+    for the scm_pilot's slope_and_soil baseline comparison -- higher Bekker
+    Kphi/Kc, slightly higher Mohr friction angle, and lower Janosi shear than
+    loose sand, meant to sit "in between" for a 3-point soil sweep
+    (loose/medium/firm). Replace with real data before drawing conclusions.

@@ -1,19 +1,39 @@
 rover_id: main_rover_baseline
-display_name: Main Rover Baseline Placeholder
-mass_kg: 48.0
-wheel_radius_m: 0.16
-wheel_width_m: 0.08
-wheelbase_m: 0.55
-track_width_m: 0.45
-cg_height_m: 0.22
-ground_clearance_m: 0.12
+display_name: Main Rover Baseline (aligned with main_v01)
+mass_kg: 2.8
+wheel_radius_m: 0.045
+wheel_width_m: 0.03
+wheelbase_m: 0.22
+track_width_m: 0.18
+cg_height_m: 0.065
+ground_clearance_m: 0.04
 driven_wheel_count: 4
-max_wheel_torque_nm: 14.0
+max_wheel_torque_nm: 0.5
 wheel_material_id: wheel_rubber_v0
-wheel_contact_model: placeholder_contact_v0
+wheel_contact_model: rigid_cylinder_v0
 fallback_mu_eff: 0.65
 fallback_crr: 0.08
-model_uri: pending://hojin/main_rover_model
+model_uri: ../../../handoff/rover_module_v01/specs/main_v01.yaml
 metadata:
   owner: Hojin rover model team
-  note: Placeholder SI spec only; no CAD, collision, tire, or Chrono wheel model assumed.
+  coordinate_convention: Chrono_XForward_YLeft_ZUp; origin at the ground-plane projection of the 4-wheel contact rectangle center
+  command_type: wheel_speed
+  wheel_count: 4
+  max_wheel_speed_radps: 15.0
+  note: >
+    Reconciled 2026-07-14 to match rover_models/main_v01 (the real,
+    Chrono-verified spec from handoff/rover_module_v01). This entry was
+    previously an unverified 48 kg / 0.16 m wheel placeholder that conflicted
+    with the team's actual mass policy: main stays in the 1.5-3 kg range,
+    deliberately heavier than scout_v01 but not a different scale of vehicle
+    -- see handoff/rover_module_v01/02_설계_이유.md. That 1.5-3 kg range is a
+    real team decision (2026-07-14), not a placeholder guess; a genuinely
+    larger/heavier main rover would need its own from-scratch motor/wheel/
+    torque design and Chrono validation, which does not exist yet.
+    This rover_id is kept (rather than deleted) only because
+    tests/test_integration_skeleton.py, tests/test_pychrono_smoke.py, and
+    tests/test_handoff_integration.py already wire through it as the default
+    main-rover fixture with fallback_mu_eff/fallback_crr filled in for
+    HeuristicBackend. fallback_mu_eff/fallback_crr are still assumed values,
+    not measured -- rover_models/main_v01 intentionally leaves them blank so
+    nobody feeds fabricated friction into a real PyChrono run by accident.

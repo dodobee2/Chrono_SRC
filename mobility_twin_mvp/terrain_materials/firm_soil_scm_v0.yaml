@@ -1,0 +1,24 @@
+material_id: firm_soil_scm_v0
+model_type: scm
+friction_nominal:
+rolling_resistance_nominal:
+restitution: 0.03
+scm_parameters:
+  bekker_kphi: 2000000.0
+  bekker_kc: 5000.0
+  bekker_n: 0.9
+  mohr_cohesion: 1000.0
+  mohr_friction_angle_deg: 35.0
+  janosi_shear_m: 0.01
+  elastic_stiffness: 60000000.0
+  damping: 40000.0
+  grid_spacing_m: 0.025
+parameter_source: assumed
+confidence: 0.2
+metadata:
+  owner: scm_pilot (2026-07-14)
+  note: >
+    Not measured. Represents a compacted/firm soil endpoint for the
+    scm_pilot's loose/medium/firm soil sweep -- high Bekker Kphi/Kc, low
+    Janosi shear (less sinkage, less slip than loose sand). Replace with
+    real data before drawing conclusions.

@@ -13,8 +13,12 @@ runs with a plain `pip install -r requirements.txt` environment.
 - Python executable: `C:\Users\lahee\anaconda3\envs\chrono\python.exe`
 - Python: `3.12.9`
 - PyChrono package: `pychrono 9.0.1` (build `py312h8c5e8c1_6621`, channel `projectchrono`)
-- Verified imports: `pychrono`, `pychrono.vehicle`, `pychrono.irrlicht`
+- Verified imports: `pychrono` (core) only. `pychrono.vehicle` / `pychrono.irrlicht` currently
+  **fail to import** in this env -- see "pychrono.vehicle / pychrono.irrlicht import failure" below.
+  (An earlier note in this file claimed both imported successfully; that could not be reproduced
+  on 2026-07-14 and should be treated as stale until re-verified.)
 - Verified smoke result: box-drop scenario completes with real contact detection via `system.GetNumContacts()`
+  (uses `pychrono` core only, not `pychrono.vehicle`)
 
 Latest verified smoke metrics:
 
@@ -90,3 +94,42 @@ system.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
 Without this call, bodies with collision shapes can silently pass through each
 other: no contacts are reported even though collision shapes and
 `EnableCollision(True)` are set on the bodies.
+
+## pychrono.vehicle / pychrono.irrlicht import failure (2026-07-14, unresolved)
+
+`import pychrono.vehicle` and `import pychrono.irrlicht` both fail in the
+`chrono` env with:
+
+```text
+ImportError: DLL load failed while importing _vehicle: DLL 초기화 루틴을 찾을 수 없습니다.
+```
+
+(same error for `_irrlicht`). `import pychrono` (core) succeeds and is fast.
+Ruled out:
+
+- **Not a PATH issue.** Explicitly adding `Library/bin` via
+  `os.add_dll_directory(...)` before the import does not fix it.
+- **Not missing/corrupt files.** `Chrono_vehicle.dll`, `Chrono_irrlicht.dll`,
+  `Irrlicht.dll`, etc. are present in `Library/bin` at plausible sizes, and
+  `_vehicle.pyd`/`_irrlicht.pyd` are present in `site-packages/pychrono` at
+  plausible sizes (not 0 bytes / truncated).
+
+The error is "DLL init routine could not be executed" (not "module not
+found"), meaning the DLL loads but its own init code fails -- consistent
+with a real install/build defect in this specific `pychrono` build, not an
+environment configuration problem this project can work around. A
+`pychrono` reinstall (`conda install -c projectchrono --force-reinstall
+pychrono`) has not been attempted yet (that's a disk-heavy operation --
+confirm before running it, and check free `C:` space first per "Do not do
+this" above).
+
+**Important instability**: a fresh `import pychrono.vehicle` in a brand-new
+process fails cleanly in ~4s. But when attempted in a process that already
+built other Chrono objects (e.g. inside a pytest session, after earlier
+tests already created `ChSystemNSC`/rover bodies), the same import has been
+observed to **hang for 60s+** instead of failing cleanly. Treat any
+in-process `import pychrono.vehicle` check as unsafe in a long-lived
+process; check it in a fresh subprocess with a hard timeout instead (see
+`tests/test_scm_pilot.py::_pychrono_vehicle_importable_in_subprocess` for
+the pattern). `src/experiments/scm_pilot`'s SCM path (which needs
+`pychrono.vehicle` for `SCMTerrain`) is blocked on this.

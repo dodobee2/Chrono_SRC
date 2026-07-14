@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -58,6 +60,34 @@ def save_simulation_result(result: SimulationResult) -> Path:
     return output_path
 
 
+def launch_irrlicht_smoke_viewer(duration_s: float = 10.0) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "src.chrono.irrlicht_smoke_viewer",
+        "--duration",
+        f"{duration_s:.3f}",
+    ]
+    creationflags = subprocess.CREATE_NEW_CONSOLE if hasattr(subprocess, "CREATE_NEW_CONSOLE") else 0
+    subprocess.Popen(command, cwd=APP_DIR, creationflags=creationflags)
+    return command
+
+
+def render_integration_usage_guide() -> None:
+    with st.expander("How to use this tab", expanded=True):
+        st.markdown(
+            """
+1. Select `RoverSpec`, `TerrainScenario`, and `ControlProfile` first. These are handoff YAML inputs.
+2. Select `ScoutObservation` and `ContactPairSpec` when matching files exist. If left empty, the heuristic backend may use legacy fallback values.
+3. Use `Run Experiment` for rover-risk contract output. Choose `heuristic` for an evaluated risk result, or `mock_chrono` for a non-evaluated integration placeholder.
+4. Use `Run PyChrono Smoke` only to verify the local PyChrono environment. It drops a 1 kg box onto a fixed floor and must not be interpreted as rover risk.
+5. Use `Open Irrlicht Smoke Viewer` when you want to see the same smoke scenario in a native PyChrono/Irrlicht window.
+
+Expected smoke success signs: `status=completed`, `contact_detected=True`, `max_contact_count >= 1`, and `final_z < 0.25`.
+            """.strip()
+        )
+
+
 def render_pychrono_environment() -> None:
     availability = get_pychrono_availability()
     st.subheader("PyChrono Environment")
@@ -74,15 +104,31 @@ def render_pychrono_environment() -> None:
     else:
         st.warning(availability.diagnostic_message)
 
+    with st.expander("Irrlicht visualization", expanded=False):
+        st.write(
+            "The smoke simulation is headless by default. Irrlicht opens as a separate native PyChrono window; "
+            "it is not embedded inside Streamlit. Close the Irrlicht window to stop the viewer."
+        )
+        viewer_duration = st.number_input("Viewer duration (s)", min_value=1.0, max_value=60.0, value=10.0, step=1.0)
+        disabled = not availability.pychrono_available or not availability.irrlicht_module_available
+        if st.button("Open Irrlicht Smoke Viewer", disabled=disabled):
+            try:
+                command = launch_irrlicht_smoke_viewer(viewer_duration)
+                st.success("Irrlicht viewer launched in a separate window.")
+                st.code(" ".join(command))
+            except Exception as exc:
+                st.error(f"Failed to launch Irrlicht viewer: {type(exc).__name__}: {exc}")
+        st.code('conda activate chrono\ncd /d "C:\\K_SRC\\mobility_twin_mvp"\npython -m src.chrono.irrlicht_smoke_viewer --duration 10')
+
 
 def render_simulation_result(result: SimulationResult, path: str | None = None) -> None:
     if result.backend_name == "mock_chrono":
         st.error(
-            "MOCK CHRONO -- Chrono physics engine이 실행되지 않았습니다. "
-            "표시된 reference 값은 기존 heuristic 결과이며 실제 Chrono 결과가 아닙니다."
+            "MOCK CHRONO -- Chrono physics engine was not executed. "
+            "Reference values are heuristic artifacts, not real Chrono results."
         )
     if result.backend_name == "pychrono_smoke":
-        st.info("PyChrono Smoke는 1 kg box-drop 환경 점검이며 rover mobility risk를 계산하지 않습니다.")
+        st.info("PyChrono Smoke is a 1 kg box-drop environment check. It does not calculate rover mobility risk.")
 
     st.subheader("SimulationResult")
     metric_cols = st.columns(5)
@@ -164,10 +210,8 @@ def sidebar_configs(rover_preset: RoverSpec | None = None) -> tuple[MainRoverCon
 
 
 def render_integration_experiment() -> None:
-    st.caption(
-        "Integration Contract MVP: RoverSpec + TerrainScenario + ScoutObservation + ContactPairSpec + "
-        "ControlProfile을 공통 SimulationResult로 연결합니다."
-    )
+    st.caption("Integration Contract MVP: RoverSpec + TerrainScenario + ScoutObservation + ContactPairSpec + ControlProfile -> SimulationResult")
+    render_integration_usage_guide()
     render_pychrono_environment()
 
     rover_ids = ROVER_REGISTRY.ids()
@@ -327,7 +371,7 @@ def render_detail(results: pd.DataFrame) -> None:
 
 
 def render_legacy_risk_map() -> None:
-    st.info("이 탭은 Integration Experiment와 분리된 기존 개념검증 화면입니다.")
+    st.info("This legacy screen is separate from Integration Experiment. It is the original concept-validation heuristic map.")
     rover_preset = None
     selected_rover_id = st.session_state.get("selected_rover_id")
     if selected_rover_id and st.checkbox("Use selected RoverSpec as MainRoverConfig defaults"):
@@ -362,10 +406,10 @@ def main() -> None:
 
     st.title("Scout-to-Main Rover Mobility Twin MVP")
     st.write(
-        "정찰로버가 측정한 최소 물리량을 메인로버 제원에 맞게 변환하여, "
-        "로버 종속적인 통과 위험도를 계산하는 Integration Contract MVP입니다."
+        "Scout rover observations are converted into main-rover-specific traversability estimates "
+        "through the Integration Contract MVP."
     )
-    st.caption("최종 출력 명칭: Main-Rover Mobility Risk Map (Rover-specific Traversability Layer).")
+    st.caption("Final output: Main-Rover Mobility Risk Map (Rover-specific Traversability Layer).")
 
     tab_integration, tab_legacy = st.tabs(["Integration Experiment", "Legacy Heuristic Risk Map"])
     with tab_integration:

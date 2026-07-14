@@ -1,0 +1,30 @@
+rover_id: scout_v01
+display_name: Scout Rover v01
+mass_kg: 1.8
+wheel_radius_m: 0.03
+wheel_width_m: 0.025
+wheelbase_m: 0.16
+track_width_m: 0.14
+cg_height_m: 0.05
+ground_clearance_m: 0.03
+driven_wheel_count: 4
+max_wheel_torque_nm: 0.3
+wheel_material_id: wheel_rubber_v0
+wheel_contact_model: rigid_cylinder_v0
+fallback_mu_eff:
+fallback_crr:
+model_uri: ../../../handoff/rover_module_v01/specs/scout_v01.yaml
+metadata:
+  owner: Hojin rover model team
+  coordinate_convention: Chrono_XForward_YLeft_ZUp; origin at the ground-plane projection of the 4-wheel contact rectangle center
+  command_type: wheel_speed
+  wheel_count: 4
+  max_wheel_speed_radps: 20.0
+  source: handoff/rover_module_v01 (2026-07-14), verified via code/scripts/run_rover_check.py
+  note: >
+    Real Chrono-verified spec translated field-for-field from
+    handoff/rover_module_v01/specs/scout_v01.yaml into Contract v2 RoverSpec.
+    fallback_mu_eff/fallback_crr are not measured yet -- do not run
+    HeuristicBackend against this rover until contact_pairs/ has real values.
+    command_type/wheel_count/max_wheel_speed_radps are Chrono-execution-only
+    fields consumed by src/chrono/rover_factory.py, not part of Contract v2.

@@ -1,0 +1,35 @@
+rover_id: main_v01
+display_name: Main Rover v01 (Research Transfer Platform)
+mass_kg: 2.8
+wheel_radius_m: 0.045
+wheel_width_m: 0.03
+wheelbase_m: 0.22
+track_width_m: 0.18
+cg_height_m: 0.065
+ground_clearance_m: 0.04
+driven_wheel_count: 4
+max_wheel_torque_nm: 0.5
+wheel_material_id: wheel_rubber_v0
+wheel_contact_model: rigid_cylinder_v0
+fallback_mu_eff:
+fallback_crr:
+model_uri: ../../../handoff/rover_module_v01/specs/main_v01.yaml
+metadata:
+  owner: Hojin rover model team
+  coordinate_convention: Chrono_XForward_YLeft_ZUp; origin at the ground-plane projection of the 4-wheel contact rectangle center
+  command_type: wheel_speed
+  wheel_count: 4
+  max_wheel_speed_radps: 15.0
+  source: handoff/rover_module_v01 (2026-07-14), verified via code/scripts/run_rover_check.py
+  note: >
+    Real Chrono-verified spec translated field-for-field from
+    handoff/rover_module_v01/specs/main_v01.yaml into Contract v2 RoverSpec.
+    This is a research transfer-validation platform, not the competition
+    rover -- it is intentionally heavier/larger than scout_v01 but stays in
+    the team's 1.5-3 kg mass policy (team decision 2026-07-14, see
+    handoff/rover_module_v01/02_설계_이유.md), not a different scale of
+    vehicle. rover_models/main_rover_baseline was reconciled (2026-07-14) to
+    the same physical numbers as this entry; it is kept only as the
+    fallback_mu_eff/fallback_crr-populated fixture that existing tests
+    already wire through for HeuristicBackend. No fabricated friction values
+    here -- fallback_mu_eff/fallback_crr are intentionally left blank.

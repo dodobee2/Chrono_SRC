@@ -97,6 +97,16 @@ Outputs are written under `data/chrono_smoke/` when the smoke run completes:
 - `result.json`
 - `runner.log`
 
+Optional Irrlicht viewer:
+
+```bat
+conda activate chrono
+cd /d "C:\K_SRC\mobility_twin_mvp"
+python -m src.chrono.irrlicht_smoke_viewer --duration 10
+```
+
+The Irrlicht viewer opens a separate native PyChrono window. It is a visual smoke check for the box-drop scenario, not an embedded Streamlit panel and not a rover-risk evaluation.
+
 The returned `SimulationResult` always uses:
 
 ```text
@@ -199,10 +209,45 @@ After that: **Actual rover/terrain model integration**
 
 The replacement point is `src/backends.py`, especially `MockChronoBackend`. A real `PyChronoBackend` should introduce:
 
-- `rover_factory`: Hojin rover spec and model URI to Chrono rover/wheel/contact objects
-- `terrain_factory`: Jongmin terrain scenario to rigid/SCM/DEM/mesh/heightmap objects
-- `control_adapter`: `ControlProfile` to Chrono driver/controller input
-- `result_extractor`: Chrono pose, slip, sinkage, torque, contact, energy, rollover/stall events to `SimulationResult`
+- `rover_factory` ([src/chrono/rover_factory.py](src/chrono/rover_factory.py)): translates Contract v2 `RoverSpec`
+  into the vendored `handoff/rover_module_v01` builder (Hojin, 2026-07-14) and builds real
+  rigid-body rover + wheel motors in a `ChSystem`. Implemented and tested
+  (`tests/test_handoff_integration.py`, `@pytest.mark.pychrono`) against `rover_models/scout_v01`
+  and `rover_models/main_v01`.
+- `terrain_factory` ([src/chrono/terrain_factory.py](src/chrono/terrain_factory.py)): translates `TerrainScenario` +
+  `TerrainMaterialSpec` into Chrono terrain objects. Rigid-flat and SCM-granular are implemented and
+  tested; rocky/uneven/gated/sloped terrain is NOT implemented -- see `handoff/map.py` (Jongmin,
+  2026-07-14) for a reference 5-zone arena that still needs to be driven by `TerrainScenario`.
+- `control_adapter`: `ControlProfile` to Chrono driver/controller input -- not started.
+- `result_extractor`: Chrono pose, slip, sinkage, torque, contact, energy, rollover/stall events to `SimulationResult` -- not started.
 
-No actual PyChrono install, Chrono C++ build, rover CAD generation, collision model invention, or SCM/DEM parameter identification is performed in this stage.
+Known gaps to close before a real `pychrono_physics` backend can be wired into `make_backend()`:
+
+- `rover_models/main_rover_baseline` was reconciled (2026-07-14) to the same physical numbers as
+  the real, Chrono-verified `rover_models/main_v01` (2.8 kg) -- it is kept only as the
+  fallback_mu_eff/fallback_crr-populated fixture existing tests already wire through for
+  `HeuristicBackend`; `main_v01` stays the canonical no-fabricated-friction entry for real Chrono
+  work. Main's mass intentionally stays in the team's 1.5-3 kg policy range (not a
+  larger/heavier-scale vehicle) -- see `handoff/rover_module_v01/02_설계_이유.md`.
+- `pychrono.vehicle` (and therefore `SCMTerrain`) currently fails to import in the verified
+  `chrono` conda env with a DLL load error (`DLL init routine could not be executed`), even though
+  `pychrono` core imports fine and `importlib.util.find_spec("pychrono.vehicle")` reports the
+  module as present. Confirmed this is not a PATH/DLL-search-directory issue (explicitly adding
+  the env's `Library/bin` via `os.add_dll_directory` does not fix it, and the native DLLs there
+  are present at plausible sizes) -- it looks like a real install/build issue in this `chrono` env
+  that would need a `pychrono` reinstall to fix, not attempted yet. Not a `terrain_factory` bug --
+  see [docs/ENVIRONMENT_SETUP.md](docs/ENVIRONMENT_SETUP.md). `tests/test_handoff_integration.py`
+  skips the affected test with this diagnosis rather than failing silently.
+
+No actual Chrono C++ build, rover CAD generation, or SCM/DEM parameter calibration is performed in this stage.
+
+## Scout-to-Main SCM Pilot
+
+A small, standalone experiment under `src/experiments/scm_pilot/` (see
+[docs/SCOUT_MAIN_SCM_PILOT_PLAN.md](docs/SCOUT_MAIN_SCM_PILOT_PLAN.md)) asks one focused question --
+does scout_v01's SCM soil response predict main_v01's response better than a slope-only or identity
+baseline -- without touching the main Streamlit app or the full arena. It reuses `rover_factory.py`,
+`terrain_factory.py`, and `mobility_physics.py` rather than building a second rover/terrain
+representation. Skeleton implemented and unit-tested; end-to-end execution is blocked on the
+`pychrono.vehicle` import failure above (`scripts/run_scm_pilot.py --slope flat --soil loose`).
 
