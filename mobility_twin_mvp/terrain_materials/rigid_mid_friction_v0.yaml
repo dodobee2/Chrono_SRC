@@ -1,0 +1,14 @@
+material_id: rigid_mid_friction_v0
+model_type: rigid
+friction_nominal: 0.6
+rolling_resistance_nominal: 0.05
+restitution: 0.02
+scm_parameters: {}
+parameter_source: assumed
+confidence: 0.3
+metadata:
+  owner: rigid_transfer_pilot (2026-07-14)
+  note: >
+    Mid-friction rigid material used as the baseline for the flat/slope/
+    obstacle conditions and as the middle point of the friction sweep
+    (0.3/0.6/0.9). Not measured.

@@ -1,0 +1,13 @@
+material_id: rigid_high_friction_v0
+model_type: rigid
+friction_nominal: 0.9
+rolling_resistance_nominal: 0.05
+restitution: 0.02
+scm_parameters: {}
+parameter_source: assumed
+confidence: 0.3
+metadata:
+  owner: rigid_transfer_pilot (2026-07-14)
+  note: >
+    High-friction rigid endpoint for the friction sweep (0.3/0.6/0.9). Not
+    measured -- a deliberately high value, unlikely to be traction-limited.

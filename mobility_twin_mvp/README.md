@@ -251,3 +251,18 @@ baseline -- without touching the main Streamlit app or the full arena. It reuses
 representation. Skeleton implemented and unit-tested; end-to-end execution is blocked on the
 `pychrono.vehicle` import failure above (`scripts/run_scm_pilot.py --slope flat --soil loose`).
 
+## Rigid-Terrain Scout-to-Main Transfer Pilot
+
+Since SCM is blocked, `src/experiments/rigid_transfer_pilot/` asks the same transfer question on
+rigid terrain only (flat, 3 slopes, 3 friction levels, 2 obstacle heights -- 9 conditions), which
+needs only `pychrono` core, not `pychrono.vehicle`. Reuses `rover_factory.py` and
+`terrain_factory.py` unmodified; slope is applied by tilting gravity and the obstacle condition is
+built with a small local helper, both to avoid touching the shared factories. Runs a torque-limited
+straight command (no ideal wheel-speed motor) and compares four predictors (`identity_baseline`,
+`slope_only`, `terrain_only`, `user_formula`) against real Main ground truth with MAE and rank
+correlation. **Verified end-to-end today** (`python scripts/run_rigid_transfer_pilot.py`) -- but see
+"Native loading is unpredictably slow" in
+[docs/ENVIRONMENT_SETUP.md](docs/ENVIRONMENT_SETUP.md): Chrono scenario building in this environment
+has a roughly 1-in-3-4 chance of hanging 60s+ per process start, unrelated to this pilot's code, so a
+run may need to be killed and retried.
+

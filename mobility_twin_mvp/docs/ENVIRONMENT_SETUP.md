@@ -104,7 +104,8 @@ other: no contacts are reported even though collision shapes and
 ImportError: DLL load failed while importing _vehicle: DLL 초기화 루틴을 찾을 수 없습니다.
 ```
 
-(same error for `_irrlicht`). `import pychrono` (core) succeeds and is fast.
+(same error for `_irrlicht`). `import pychrono` (core) always succeeds, but see
+"Native loading is unpredictably slow" below -- "fast" is not reliable.
 Ruled out:
 
 - **Not a PATH issue.** Explicitly adding `Library/bin` via
@@ -133,3 +134,38 @@ process; check it in a fresh subprocess with a hard timeout instead (see
 `tests/test_scm_pilot.py::_pychrono_vehicle_importable_in_subprocess` for
 the pattern). `src/experiments/scm_pilot`'s SCM path (which needs
 `pychrono.vehicle` for `SCMTerrain`) is blocked on this.
+
+## Native loading is unpredictably slow -- not just pychrono.vehicle (2026-07-14)
+
+This turned out to be broader than the vehicle/irrlicht import failure above.
+Building a plain `ChSystemNSC` + Bullet collision + rigid terrain + rover
+scenario (`src/experiments/rigid_transfer_pilot`, `pychrono` core only, no
+`pychrono.vehicle` anywhere) was timed 3 times in a row in fresh processes:
+
+```text
+run 1: hung past 60s (killed)
+run 2: 3.8s
+run 3: 2.3s
+```
+
+So this is not specific to the vehicle/irrlicht modules -- it looks like
+native DLL-loading instability in this `pychrono` install/environment in
+general, roughly 1-in-3-to-4 chance of a bad hang on any given process start
+that touches Chrono. The actual simulation stepping itself is fast once a
+scenario is built (600 steps in ~0.07s) -- the unpredictable part is purely
+the first native-library touch in a process.
+
+Practical consequences:
+
+- Any pytest that builds a real Chrono scenario must not do so in-process
+  inside the main test run -- isolate it in a subprocess with a hard timeout
+  and skip on timeout, same pattern as the `pychrono.vehicle` check above.
+  See `tests/test_rigid_transfer_pilot.py::_run_pilot_condition_in_subprocess`.
+- `scripts/run_rigid_transfer_pilot.py` and `scripts/run_scm_pilot.py` are
+  plain single-process CLI scripts with no such protection -- if a run
+  appears to hang, that is expected behavior given the above, not
+  necessarily a bug. Killing and re-running is a reasonable first response.
+- Root cause not identified (candidates: antivirus/Windows Defender
+  real-time scanning of freshly-touched `.pyd`/`.dll` files, some other
+  first-touch disk/OS contention). Not investigated further -- would need
+  tooling (Process Monitor) beyond what's practical here.
