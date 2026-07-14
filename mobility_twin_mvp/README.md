@@ -56,6 +56,11 @@ Backends:
 
 ## PyChrono Smoke Integration
 
+PyChrono is not a `requirements.txt` dependency; it must be installed via conda
+in a separate environment. See [docs/ENVIRONMENT_SETUP.md](docs/ENVIRONMENT_SETUP.md)
+for the verified environment, install steps, and the collision-system setup
+note.
+
 The Streamlit `Integration Experiment` tab includes a `PyChrono Environment` panel:
 
 - Python executable
@@ -71,6 +76,7 @@ The `Run PyChrono Smoke` button calls a pure Python backend path:
 app.py
   -> src.backends.make_backend("pychrono_smoke")
   -> src.chrono.pychrono_backend.PyChronoSmokeBackend
+  -> python -m src.chrono.pychrono_runner
   -> src.chrono.smoke_scenario.run_smoke_scenario()
 ```
 
@@ -199,3 +205,4 @@ The replacement point is `src/backends.py`, especially `MockChronoBackend`. A re
 - `result_extractor`: Chrono pose, slip, sinkage, torque, contact, energy, rollover/stall events to `SimulationResult`
 
 No actual PyChrono install, Chrono C++ build, rover CAD generation, collision model invention, or SCM/DEM parameter identification is performed in this stage.
+

@@ -61,11 +61,12 @@ def save_simulation_result(result: SimulationResult) -> Path:
 def render_pychrono_environment() -> None:
     availability = get_pychrono_availability()
     st.subheader("PyChrono Environment")
-    cols = st.columns(4)
+    cols = st.columns(5)
     cols[0].metric("PyChrono", "Available" if availability.pychrono_available else "Unavailable")
     cols[1].metric("Vehicle module", "Available" if availability.vehicle_module_available else "Unavailable")
-    cols[2].metric("Version", availability.version or "unknown")
-    cols[3].metric("Python", Path(availability.python_executable).name)
+    cols[2].metric("Irrlicht module", "Available" if availability.irrlicht_module_available else "Unavailable")
+    cols[3].metric("Version", availability.version or "unknown")
+    cols[4].metric("Python", Path(availability.python_executable).name)
     st.caption(f"Python executable: {availability.python_executable}")
     st.caption(f"Module path: {availability.pychrono_module_path or '-'}")
     if availability.pychrono_available:
@@ -232,6 +233,8 @@ def render_integration_experiment() -> None:
             st.session_state["last_simulation_result_path"] = str(output_path)
             if result.status == "completed":
                 status.update(label="COMPLETED", state="complete")
+            elif result.status == "timeout":
+                status.update(label="TIMEOUT", state="error")
             else:
                 status.update(label="FAILED", state="error")
 
@@ -373,4 +376,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

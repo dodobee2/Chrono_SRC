@@ -16,6 +16,7 @@ class SmokeScenarioConfig:
     duration_s: float = 3.0
     step_size_s: float = 0.001
     sample_period_s: float = 0.02
+    max_wall_time_s: float = 20.0
     box_mass_kg: float = 1.0
     box_initial_position_m: tuple[float, float, float] = (0.0, 0.0, 1.0)
     gravity_mps2: tuple[float, float, float] = (0.0, 0.0, -9.81)
@@ -67,15 +68,22 @@ def run_smoke_scenario(config: SmokeScenarioConfig | None = None) -> SmokeScenar
         system.Add(floor)
         system.Add(box)
 
-        trajectory = _simulate(system, box, chrono, config)
+        trajectory, contact_summary = _simulate(system, box, chrono, config, started)
         wall_time = time.perf_counter() - started
-        metrics = _extract_metrics(trajectory, config, wall_time)
+        metrics = _extract_metrics(trajectory, config, wall_time, contact_summary)
+        status = "timeout" if contact_summary["timed_out"] else "completed"
         return SmokeScenarioResult(
-            status="completed",
+            status=status,
             metrics=metrics,
             trajectory=trajectory,
-            runner_log="PyChrono smoke scenario completed.",
-            error=None,
+            runner_log=(
+                f"PyChrono smoke scenario {status}. "
+                f"contact_detection_source={contact_summary['contact_detection_source']}; "
+                f"max_contact_count={contact_summary['max_contact_count']}; "
+                f"first_contact_time_s={contact_summary['first_contact_time_s']}; "
+                f"wall_time_s={wall_time:.3f}"
+            ),
+            error="Smoke scenario exceeded max_wall_time_s." if status == "timeout" else None,
         )
     except Exception as exc:  # pragma: no cover - depends on local PyChrono API
         return SmokeScenarioResult(
@@ -98,8 +106,10 @@ def write_trajectory_csv(trajectory: list[dict[str, float]], output_path: Path) 
         "velocity_y_mps",
         "velocity_z_mps",
     ]
+    if any("contact_count" in row for row in trajectory):
+        columns.append("contact_count")
     with output_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(trajectory)
     return output_path
@@ -123,10 +133,14 @@ def validate_trajectory_schema(trajectory: list[dict[str, float]]) -> None:
 
 def _make_system(chrono: Any) -> Any:  # pragma: no cover - requires PyChrono
     if hasattr(chrono, "ChSystemNSC"):
-        return chrono.ChSystemNSC()
-    if hasattr(chrono, "ChSystemSMC"):
-        return chrono.ChSystemSMC()
-    raise RuntimeError("No supported Chrono system class found: expected ChSystemNSC or ChSystemSMC")
+        system = chrono.ChSystemNSC()
+    elif hasattr(chrono, "ChSystemSMC"):
+        system = chrono.ChSystemSMC()
+    else:
+        raise RuntimeError("No supported Chrono system class found: expected ChSystemNSC or ChSystemSMC")
+    if hasattr(system, "SetCollisionSystemType") and hasattr(chrono, "ChCollisionSystem"):
+        system.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
+    return system
 
 
 def _set_gravity(system: Any, chrono: Any, gravity: tuple[float, float, float]) -> None:  # pragma: no cover
@@ -160,51 +174,120 @@ def _make_box(system: Any, chrono: Any, config: SmokeScenarioConfig) -> Any:  # 
     return box
 
 
-def _simulate(system: Any, box: Any, chrono: Any, config: SmokeScenarioConfig) -> list[dict[str, float]]:  # pragma: no cover
+def _simulate(
+    system: Any,
+    box: Any,
+    chrono: Any,
+    config: SmokeScenarioConfig,
+    wall_started: float,
+) -> tuple[list[dict[str, float]], dict[str, Any]]:  # pragma: no cover
     trajectory: list[dict[str, float]] = []
+    contact_counter, contact_source = _make_contact_counter(system)
+    max_contact_count = 0
+    first_contact_time_s: float | None = None
     steps = int(config.duration_s / config.step_size_s)
     sample_every = max(1, int(config.sample_period_s / config.step_size_s))
     for step_index in range(steps + 1):
+        timed_out = (time.perf_counter() - wall_started) > config.max_wall_time_s
+        contact_count = int(contact_counter(system, box))
+        if contact_count > max_contact_count:
+            max_contact_count = contact_count
+        if contact_count > 0 and first_contact_time_s is None:
+            first_contact_time_s = float(system.GetChTime())
         if step_index % sample_every == 0 or step_index == steps:
-            trajectory.append(_sample_state(system, box))
+            sample = _sample_state(system, box)
+            sample["contact_count"] = float(contact_count)
+            trajectory.append(sample)
+        if timed_out:
+            validate_trajectory_schema(trajectory)
+            return trajectory, {
+                "max_contact_count": max_contact_count,
+                "first_contact_time_s": first_contact_time_s,
+                "contact_detected": max_contact_count > 0,
+                "contact_detection_source": contact_source,
+                "timed_out": True,
+            }
         if step_index < steps:
             system.DoStepDynamics(config.step_size_s)
     validate_trajectory_schema(trajectory)
-    return trajectory
+    return trajectory, {
+        "max_contact_count": max_contact_count,
+        "first_contact_time_s": first_contact_time_s,
+        "contact_detected": max_contact_count > 0,
+        "contact_detection_source": contact_source,
+        "timed_out": False,
+    }
 
 
 def _extract_metrics(
     trajectory: list[dict[str, float]],
     config: SmokeScenarioConfig,
     wall_time_s: float,
+    contact_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not trajectory:
         return {"wall_time_s": wall_time_s, "contact_detected": False}
+    contact_summary = contact_summary or {
+        "contact_detected": False,
+        "max_contact_count": 0,
+        "first_contact_time_s": None,
+        "contact_detection_source": "unknown",
+        "timed_out": False,
+    }
     first = trajectory[0]
     last = trajectory[-1]
     speeds = [
         math.sqrt(row["velocity_x_mps"] ** 2 + row["velocity_y_mps"] ** 2 + row["velocity_z_mps"] ** 2)
         for row in trajectory
     ]
+    z_values = [row["position_z_m"] for row in trajectory]
     travel_distance = math.sqrt(
         (last["position_x_m"] - first["position_x_m"]) ** 2
         + (last["position_y_m"] - first["position_y_m"]) ** 2
         + (last["position_z_m"] - first["position_z_m"]) ** 2
     )
-    contact_detected = any(row["position_z_m"] <= 0.16 and abs(row["velocity_z_mps"]) < 0.5 for row in trajectory)
     return {
         "simulation_time_s": config.duration_s,
         "travel_distance_m": travel_distance,
         "mean_body_speed_mps": travel_distance / max(config.duration_s, 1e-9),
+        "initial_z": first["position_z_m"],
+        "minimum_z": min(z_values),
+        "final_z": last["position_z_m"],
+        "final_vz": last["velocity_z_mps"],
         "final_position_xyz_m": [
             last["position_x_m"],
             last["position_y_m"],
             last["position_z_m"],
         ],
         "max_speed_mps": max(speeds),
-        "contact_detected": contact_detected,
+        "contact_detected": bool(contact_summary["contact_detected"]),
+        "max_contact_count": int(contact_summary["max_contact_count"]),
+        "first_contact_time_s": contact_summary["first_contact_time_s"],
+        "contact_detection_source": str(contact_summary["contact_detection_source"]),
+        "timed_out": bool(contact_summary.get("timed_out", False)),
         "wall_time_s": wall_time_s,
     }
+
+
+def _make_contact_counter(system: Any) -> tuple[Any, str]:  # pragma: no cover
+    if hasattr(system, "GetNumContacts") and callable(system.GetNumContacts):
+        return lambda current_system, _box: int(current_system.GetNumContacts()), "system.GetNumContacts"
+
+    if hasattr(system, "GetContactContainer") and callable(system.GetContactContainer):
+        container = system.GetContactContainer()
+        if hasattr(container, "GetNumContacts") and callable(container.GetNumContacts):
+            return (
+                lambda current_system, _box: int(current_system.GetContactContainer().GetNumContacts()),
+                "contact_container.GetNumContacts",
+            )
+
+    return _kinematic_contact_count, "kinematic_fallback"
+
+
+def _kinematic_contact_count(_system: Any, box: Any) -> int:  # pragma: no cover
+    pos = box.GetPos()
+    vel = box.GetPosDt() if hasattr(box, "GetPosDt") else box.GetLinVel()
+    return int(float(pos.z) <= 0.16 and abs(float(vel.z)) < 0.5)
 
 
 def _sample_state(system: Any, body: Any) -> dict[str, float]:  # pragma: no cover
@@ -296,4 +379,3 @@ def _make_contact_material(chrono: Any) -> Any:  # pragma: no cover
 def _set_visual_shape_box(body: Any, chrono: Any, x: float, y: float, z: float) -> None:  # pragma: no cover
     if hasattr(chrono, "ChVisualShapeBox") and hasattr(body, "AddVisualShape"):
         body.AddVisualShape(chrono.ChVisualShapeBox(x, y, z))
-

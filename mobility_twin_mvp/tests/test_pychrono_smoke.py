@@ -10,11 +10,25 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.backends import evaluated_grade_counts
-from src.chrono.availability import get_pychrono_availability
+from src.chrono.availability import ChronoAvailability, get_pychrono_availability
 from src.chrono.pychrono_backend import PyChronoSmokeBackend
+import src.chrono.pychrono_backend as pychrono_backend_module
 from src.chrono.smoke_scenario import run_smoke_scenario, validate_trajectory_schema
 from src.integration_schemas import SimulationResult
 from src.registries import ControlProfileRegistry, RoverRegistry, TerrainRegistry
+
+
+def unavailable_pychrono() -> ChronoAvailability:
+    return ChronoAvailability(
+        python_executable=sys.executable,
+        python_version=sys.version,
+        pychrono_available=False,
+        vehicle_module_available=False,
+        irrlicht_module_available=False,
+        pychrono_module_path=None,
+        version=None,
+        diagnostic_message="pychrono intentionally disabled for backend contract unit test.",
+    )
 
 
 def load_contract_inputs():
@@ -43,12 +57,14 @@ def test_trajectory_schema_validation_accepts_required_columns() -> None:
                 "velocity_x_mps": 0.0,
                 "velocity_y_mps": 0.0,
                 "velocity_z_mps": 0.0,
+                "contact_count": 0.0,
             }
         ]
     )
 
 
-def test_pychrono_smoke_backend_not_evaluated_without_requiring_pychrono(tmp_path: Path) -> None:
+def test_pychrono_smoke_backend_not_evaluated_without_requiring_pychrono(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pychrono_backend_module, "get_pychrono_availability", unavailable_pychrono)
     rover, terrain, control = load_contract_inputs()
     result = PyChronoSmokeBackend(artifact_root=tmp_path).run(rover, terrain, control)
 
@@ -59,7 +75,8 @@ def test_pychrono_smoke_backend_not_evaluated_without_requiring_pychrono(tmp_pat
     assert result.grade == "NOT_EVALUATED"
 
 
-def test_pychrono_smoke_result_is_not_in_risk_counts(tmp_path: Path) -> None:
+def test_pychrono_smoke_result_is_not_in_risk_counts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pychrono_backend_module, "get_pychrono_availability", unavailable_pychrono)
     rover, terrain, control = load_contract_inputs()
     result = PyChronoSmokeBackend(artifact_root=tmp_path).run(rover, terrain, control)
 
@@ -67,7 +84,8 @@ def test_pychrono_smoke_result_is_not_in_risk_counts(tmp_path: Path) -> None:
     assert sum(counts.values()) == 0
 
 
-def test_pychrono_smoke_result_json_round_trip(tmp_path: Path) -> None:
+def test_pychrono_smoke_result_json_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pychrono_backend_module, "get_pychrono_availability", unavailable_pychrono)
     rover, terrain, control = load_contract_inputs()
     result = PyChronoSmokeBackend(artifact_root=tmp_path).run(rover, terrain, control)
     restored = SimulationResult.from_mapping(json.loads(json.dumps(result.to_dict())))
@@ -90,4 +108,15 @@ def test_real_pychrono_smoke_scenario_when_available() -> None:
     final_z = result.trajectory[-1]["position_z_m"]
     assert final_z < 0.25
     assert result.metrics["contact_detected"] is True
+    assert result.metrics["max_contact_count"] >= 1
+    assert result.metrics["first_contact_time_s"] is not None
+    assert result.metrics["contact_detection_source"] in {
+        "system.GetNumContacts",
+        "contact_container.GetNumContacts",
+        "kinematic_fallback",
+    }
+    assert result.metrics["timed_out"] is False
+    assert result.metrics["initial_z"] == pytest.approx(1.0)
+    assert result.metrics["minimum_z"] < 0.25
+    assert "contact_count" in result.trajectory[-1]
 
