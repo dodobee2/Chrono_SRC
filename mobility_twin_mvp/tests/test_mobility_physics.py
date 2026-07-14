@@ -8,7 +8,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.mobility_physics import beta_crit_deg, calculate_mobility_physics, required_traction_force_n
+from src.mobility_physics import G_MPS2, beta_crit_deg, calculate_mobility_physics, pressure_ratio, required_traction_force_n
 from src.risk_fusion import analyze_dataframe, analyze_patch, calculate_risk_components
 from src.sample_generator import generate_sample_patches
 from src.schemas import DEFAULT_SCOUT_REFERENCE, MainRoverConfig, ScoutMeasurement

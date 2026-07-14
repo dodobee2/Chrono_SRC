@@ -139,6 +139,46 @@ def test_rigid_flat_terrain_builds_a_collidable_floor() -> None:
 
 
 @pytest.mark.pychrono
+def test_rigid_flat_terrain_actually_stops_a_falling_body() -> None:
+    """GetCollisionModel() is not None alone does not prove the floor collides --
+    a floor with a mismatched contact material (e.g. SMC material under a
+    ChSystemNSC) still has a non-null collision model but applies no real
+    force, so a body falls straight through it. This regression was found
+    2026-07-14 via src/experiments/rigid_transfer_pilot's real output
+    (z_m falling to -3.86m, contact_count=0 throughout) after the weaker
+    assertion above passed. Step real dynamics and check the box actually
+    comes to rest on the floor instead of free-falling through it.
+    """
+    from src.chrono.availability import get_pychrono_availability
+    from src.chrono.terrain_factory import build_rigid_flat_terrain
+
+    if not get_pychrono_availability().pychrono_available:
+        pytest.skip("pychrono not available")
+
+    import pychrono as chrono
+
+    flat = make_flat_terrain()
+    system = chrono.ChSystemNSC()
+    system.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
+    build_rigid_flat_terrain(system, flat)
+
+    material = chrono.ChContactMaterialNSC()
+    box = chrono.ChBodyEasyBox(0.1, 0.1, 0.1, 500.0, True, True, material)
+    box.SetPos(chrono.ChVector3d(0.0, 0.0, 0.5))
+    box.SetFixed(False)
+    box.EnableCollision(True)
+    system.Add(box)
+
+    for _ in range(2000):
+        system.DoStepDynamics(0.001)
+
+    assert box.GetPos().z > -0.1, (
+        f"box fell through the floor to z={box.GetPos().z:.3f} -- terrain/rover contact material mismatch regression"
+    )
+    assert system.GetNumContacts() >= 1
+
+
+@pytest.mark.pychrono
 def test_scm_terrain_builds_a_deformable_patch() -> None:
     from src.chrono.availability import get_pychrono_availability
 

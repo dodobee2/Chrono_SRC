@@ -34,3 +34,5 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+
+/우주로버 아이디어.pdf

@@ -15,6 +15,20 @@ SCM default parameters are the loose, non-cohesive sand test values measured
 in handoff/map.py (SCM_BEKER_*, SCM_MOHR_*, SCM_JANOSI_SHEAR,
 SCM_ELASTIC_STIFFNESS, SCM_DAMPING) and are used only when
 TerrainMaterialSpec.scm_parameters does not override a given key.
+
+Contact material type must match the caller's system: build_rigid_flat_terrain
+uses ChContactMaterialNSC (not SMC) because every verified-working system in
+this project (rover_factory's vendored builder, smoke_scenario.py) uses
+ChSystemNSC. This was originally SMC and the mismatch was a real, silent bug
+(2026-07-14): the floor's collision shape existed and occasionally still
+registered a contact count, but the mismatched contact method meant no real
+collision force was ever applied, so bodies fell straight through it. Found
+via src/experiments/rigid_transfer_pilot's real trajectory output (z climbing
+to -3.86m over under a second, contact_count=0 throughout) -- the earlier
+unit test only checked `floor.GetCollisionModel() is not None`, which is true
+regardless of this bug and did not catch it. If you ever need SMC here,
+change the whole call chain (system + rover contact materials) together, not
+just the floor.
 """
 
 from __future__ import annotations
@@ -80,7 +94,7 @@ def build_rigid_flat_terrain(
         material.restitution if material and material.restitution is not None else DEFAULT_RESTITUTION
     )
 
-    floor_material = chrono.ChContactMaterialSMC()
+    floor_material = chrono.ChContactMaterialNSC()
     floor_material.SetFriction(friction)
     floor_material.SetRestitution(restitution)
 

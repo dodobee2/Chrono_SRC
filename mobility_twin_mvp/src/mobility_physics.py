@@ -77,7 +77,8 @@ def pressure_ratio(config: MainRoverConfig, scout_reference: ScoutReferenceConfi
     This intentionally follows the requested heuristic: main mass per driven wheel
     divided by the reference scout wheel load scalar in N.
     """
-    return (config.mass_kg / config.driven_wheel_count) / scout_reference.wheel_load_n
+    main_wheel_load_n = config.mass_kg * G_MPS2 / config.driven_wheel_count
+    return main_wheel_load_n / scout_reference.wheel_load_n
 
 
 def predict_main_sinkage_m(
