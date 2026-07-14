@@ -1,0 +1,23 @@
+# Main Rover v01 — 초기 추정 스펙 (연구용 전이 검증 플랫폼)
+# TODO: 전 필드가 초기 추정치. 실제 플랫폼 확정 시 갱신할 것.
+# 단위: SI (m, kg, rad/s, N·m)
+# 좌표계: Z-up, X 전진, Y 좌측. 원점 = 4휠 접지점 직사각형 중심 (rover_schema.py 참조)
+# 질량 방침: scout 와 같은 1.5~3 kg 범위에서 scout 보다 확실히 무겁게 (팀 결정 2026-07-14)
+
+rover:
+  rover_id: main_v01
+  mass_kg: 2.8                    # TODO (1.5~3 kg 범위, scout 대비 1.56배)
+  cg_xyz_m: [0.0, 0.0, 0.065]     # TODO: ASSUMPTION — 접지면 위 6.5 cm (scout 보다 높음)
+  wheel_count: 4
+  driven_wheel_count: 4           # 4WD, 좌/우 독립 명령 (skid steer)
+  wheel_radius_m: 0.045
+  wheel_width_m: 0.03
+  wheelbase_m: 0.22
+  track_width_m: 0.18
+  ground_clearance_m: 0.04
+  command_type: wheel_speed       # TODO: 팀 결정 대기. wheel_torque 도 빌더 지원함
+  max_wheel_torque_nm: 0.5        # TODO
+  max_wheel_speed_radps: 15.0     # TODO: ≈ 0.675 m/s 상당 (r=0.045)
+
+sim:
+  mast_height_m: 0.16             # scout 보다 큰 차체에 맞춘 마스트 높이

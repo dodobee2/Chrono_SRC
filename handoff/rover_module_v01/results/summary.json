@@ -1,0 +1,171 @@
+{
+  "slope_deg": 10.0,
+  "checks": [
+    {
+      "name": "scout_v01/spawn CG 높이 유지",
+      "pass": true,
+      "detail": "|z−cg_z| = 0.00 mm (< 5 mm)"
+    },
+    {
+      "name": "scout_v01/spawn 튐·침하 없음",
+      "pass": true,
+      "detail": "마지막 0.5 s z 변동폭 = 0.006 mm (< 2 mm)"
+    },
+    {
+      "name": "scout_v01/spawn 자세 수평",
+      "pass": true,
+      "detail": "|pitch| = 0.002°, |roll| = 0.002° (< 0.5°)"
+    },
+    {
+      "name": "scout_v01/cruise 상용 속도 도달",
+      "pass": true,
+      "detail": "v = 0.360 m/s (목표 0.360 ±10 %)"
+    },
+    {
+      "name": "scout_v01/cruise 슬립률 ≈ 0",
+      "pass": true,
+      "detail": "mean|slip| = 0.0012 (< 0.05)"
+    },
+    {
+      "name": "scout_v01/cruise 직진 유지",
+      "pass": true,
+      "detail": "|y| = 0.11 cm (< 5), |yaw| = 0.16° (< 3)"
+    },
+    {
+      "name": "scout_v01/slope 토크 요구 증가",
+      "pass": true,
+      "detail": "τ_slope = 22.77 mN·m vs τ_flat = -0.26 mN·m (등판 기대 증가분 23.00 mN·m, 실측 23.04)"
+    },
+    {
+      "name": "scout_v01/slope 등판 토크 물리 근사 일치",
+      "pass": true,
+      "detail": "실측/기대 = 1.00 (0.5–2.0 허용)"
+    },
+    {
+      "name": "scout_v01/slope 토크 한계 내",
+      "pass": true,
+      "detail": "평균 τ_slope = 22.77 mN·m < max 300 mN·m (순간 피크 73.2 mN·m — 속도모터 노이즈 포함)"
+    },
+    {
+      "name": "scout_v01/pivot 제자리 좌선회",
+      "pass": true,
+      "detail": "4 s 선회각 = 222.4° (> 30°, 명령 부호와 방향 일치)"
+    },
+    {
+      "name": "scout_v01/pivot 위치 이탈 없음",
+      "pass": true,
+      "detail": "|x| = 0.1 cm, |y| = 0.1 cm (< 10 cm)"
+    },
+    {
+      "name": "scout_v01/수납부피 이내",
+      "pass": true,
+      "detail": "220×165×70 mm (한도 300×300×200, 마스트 접이 제외)"
+    },
+    {
+      "name": "main_v01/spawn CG 높이 유지",
+      "pass": true,
+      "detail": "|z−cg_z| = 0.00 mm (< 5 mm)"
+    },
+    {
+      "name": "main_v01/spawn 튐·침하 없음",
+      "pass": true,
+      "detail": "마지막 0.5 s z 변동폭 = 0.003 mm (< 2 mm)"
+    },
+    {
+      "name": "main_v01/spawn 자세 수평",
+      "pass": true,
+      "detail": "|pitch| = 0.001°, |roll| = 0.001° (< 0.5°)"
+    },
+    {
+      "name": "main_v01/cruise 상용 속도 도달",
+      "pass": true,
+      "detail": "v = 0.405 m/s (목표 0.405 ±10 %)"
+    },
+    {
+      "name": "main_v01/cruise 슬립률 ≈ 0",
+      "pass": true,
+      "detail": "mean|slip| = 0.0007 (< 0.05)"
+    },
+    {
+      "name": "main_v01/cruise 직진 유지",
+      "pass": true,
+      "detail": "|y| = 0.05 cm (< 5), |yaw| = 0.05° (< 3)"
+    },
+    {
+      "name": "main_v01/slope 토크 요구 증가",
+      "pass": true,
+      "detail": "τ_slope = 53.26 mN·m vs τ_flat = -0.67 mN·m (등판 기대 증가분 53.66 mN·m, 실측 53.93)"
+    },
+    {
+      "name": "main_v01/slope 등판 토크 물리 근사 일치",
+      "pass": true,
+      "detail": "실측/기대 = 1.00 (0.5–2.0 허용)"
+    },
+    {
+      "name": "main_v01/slope 토크 한계 내",
+      "pass": true,
+      "detail": "평균 τ_slope = 53.26 mN·m < max 500 mN·m (순간 피크 217.0 mN·m — 속도모터 노이즈 포함)"
+    },
+    {
+      "name": "main_v01/pivot 제자리 좌선회",
+      "pass": true,
+      "detail": "4 s 선회각 = 179.8° (> 30°, 명령 부호와 방향 일치)"
+    },
+    {
+      "name": "main_v01/pivot 위치 이탈 없음",
+      "pass": true,
+      "detail": "|x| = 0.1 cm, |y| = 0.1 cm (< 10 cm)"
+    },
+    {
+      "name": "compare/무거운 로버가 등판 토크 더 큼",
+      "pass": true,
+      "detail": "main_v01 53.26 > scout_v01 22.77 mN·m"
+    },
+    {
+      "name": "compare/무거운 로버가 등판 에너지 더 씀",
+      "pass": true,
+      "detail": "main_v01 17.473 J > scout_v01 10.279 J"
+    },
+    {
+      "name": "compare/토크비가 질량·휠반경비 근사",
+      "pass": true,
+      "detail": "실측비 2.34 vs 기대비(m·r) 2.33"
+    }
+  ],
+  "rovers": {
+    "scout_v01": {
+      "mass_kg": 1.8,
+      "overall_dims_mm": [
+        220.0,
+        165.0,
+        70.0
+      ],
+      "settle_z_err_mm": 0.002,
+      "cruise_v_mps": 0.3599,
+      "cruise_mean_abs_slip": 0.00121,
+      "pivot_yaw_4s_deg": 222.4,
+      "tau_flat_mnm": -0.265,
+      "tau_slope_mnm": 22.774,
+      "tau_slope_expected_extra_mnm": 22.997,
+      "energy_flat_j": 5.7788,
+      "energy_slope_j": 10.279
+    },
+    "main_v01": {
+      "mass_kg": 2.8,
+      "overall_dims_mm": [
+        310.0,
+        210.0,
+        90.0
+      ],
+      "settle_z_err_mm": 0.001,
+      "cruise_v_mps": 0.4049,
+      "cruise_mean_abs_slip": 0.00068,
+      "pivot_yaw_4s_deg": 179.8,
+      "tau_flat_mnm": -0.668,
+      "tau_slope_mnm": 53.259,
+      "tau_slope_expected_extra_mnm": 53.66,
+      "energy_flat_j": 11.872,
+      "energy_slope_j": 17.4735
+    }
+  }
+}

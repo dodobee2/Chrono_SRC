@@ -1,0 +1,23 @@
+# Scout Rover v01 — 초기 추정 스펙 (대회 출품 차량)
+# TODO: 전 필드가 초기 추정치. CAD·구동계 값 확정 시 갱신할 것.
+# 단위: SI (m, kg, rad/s, N·m)
+# 좌표계: Z-up, X 전진, Y 좌측. 원점 = 4휠 접지점 직사각형 중심 (rover_schema.py 참조)
+# 질량 방침: 공고문 한도 3 kg. 1 kg 경량화는 장기 목표로 두고
+#            제작 여유를 위해 1.5~3 kg 범위에서 설계 (팀 결정 2026-07-14)
+
+rover:
+  rover_id: scout_v01
+  mass_kg: 1.8                    # TODO: BOM 합산으로 갱신 (1.5~3 kg 범위)
+  cg_xyz_m: [0.0, 0.0, 0.05]      # TODO: CAD 질량특성으로 갱신 (ASSUMPTION: 접지면 위 5 cm)
+  wheel_count: 4
+  driven_wheel_count: 4           # 4WD, 좌/우 독립 명령 (skid steer)
+  wheel_radius_m: 0.03
+  wheel_width_m: 0.025
+  wheelbase_m: 0.16
+  track_width_m: 0.14
+  ground_clearance_m: 0.03
+  command_type: wheel_speed
+  max_wheel_torque_nm: 0.3        # TODO: 모터+감속기 확정 시 갱신 (소형 기어드모터급 가정)
+  max_wheel_speed_radps: 20.0     # TODO: ≈ 0.6 m/s 상당 (r=0.03). 모터 확정 시 갱신
+
+sim: {}                           # SimConfig 기본값 사용 (필요 시 override)
