@@ -16,19 +16,13 @@ in handoff/map.py (SCM_BEKER_*, SCM_MOHR_*, SCM_JANOSI_SHEAR,
 SCM_ELASTIC_STIFFNESS, SCM_DAMPING) and are used only when
 TerrainMaterialSpec.scm_parameters does not override a given key.
 
-Contact material type must match the caller's system: build_rigid_flat_terrain
-uses ChContactMaterialNSC (not SMC) because every verified-working system in
-this project (rover_factory's vendored builder, smoke_scenario.py) uses
-ChSystemNSC. This was originally SMC and the mismatch was a real, silent bug
-(2026-07-14): the floor's collision shape existed and occasionally still
-registered a contact count, but the mismatched contact method meant no real
-collision force was ever applied, so bodies fell straight through it. Found
-via src/experiments/rigid_transfer_pilot's real trajectory output (z climbing
-to -3.86m over under a second, contact_count=0 throughout) -- the earlier
-unit test only checked `floor.GetCollisionModel() is not None`, which is true
-regardless of this bug and did not catch it. If you ever need SMC here,
-change the whole call chain (system + rover contact materials) together, not
-just the floor.
+Contact material type must match the caller's system -- see
+src/chrono/system_factory.py for the full story on why this module now
+routes all material creation through make_nsc_contact_material() instead of
+calling chrono.ChContactMaterialSMC()/NSC() directly (this file's rigid
+floor material was SMC under an NSC system until 2026-07-14, a real silent
+bug: the floor had a collision shape but applied no real force, so rovers
+fell straight through it).
 """
 
 from __future__ import annotations
@@ -36,6 +30,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..integration_schemas import TerrainMaterialSpec, TerrainScenario
+from .system_factory import make_nsc_contact_material
 
 DEFAULT_RIGID_FRICTION = 0.8
 DEFAULT_RESTITUTION = 0.02
@@ -94,9 +89,7 @@ def build_rigid_flat_terrain(
         material.restitution if material and material.restitution is not None else DEFAULT_RESTITUTION
     )
 
-    floor_material = chrono.ChContactMaterialNSC()
-    floor_material.SetFriction(friction)
-    floor_material.SetRestitution(restitution)
+    floor_material = make_nsc_contact_material(friction=friction, restitution=restitution)
 
     floor = chrono.ChBodyEasyBox(length_x, width_y, thickness, 2000.0, True, True, floor_material)
     floor.SetName(f"{terrain.terrain_id}_rigid_floor")

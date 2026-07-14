@@ -14,15 +14,21 @@ deformation through an unconfirmed API. If lateral slope or approach
 geometry is ever needed, extend terrain_factory instead of stretching this
 trick further.
 
+Gravity tilt sign (fixed 2026-07-15, ported from the same fix in
+src/experiments/rigid_transfer_pilot/scenario.py): for positive slope_deg to
+mean climbing uphill, gravity's along-travel (+X) component must oppose
+forward motion (negative), matching required_traction_force_n's
+F_req = mg*sin(slope) + ... assumption. This was originally positive (assisted,
+downhill) in both pilots -- fixed here even though this module cannot be run
+yet, so the bug isn't waiting to resurface once pychrono.vehicle is fixed.
+
 UNVERIFIED: pychrono.vehicle (and therefore SCMTerrain) currently fails to
 import in this project's `chrono` conda env (DLL init error -- and has been
 observed to hang rather than fail cleanly when attempted in a process that
 already built other Chrono objects, see docs/ENVIRONMENT_SETUP.md), so none
 of this module has been run end-to-end. In particular, whether SCMTerrain
-works correctly under ChSystemNSC has not been checked --
-src/chrono/vendor/rover_module_v01/rover_builder.py hardcodes
-ChContactMaterialNSC for the rover's own wheels/chassis, so this scenario
-defaults to ChSystemNSC to stay consistent with that, rather than the
+works correctly under ChSystemNSC has not been checked -- see
+src/chrono/system_factory.py for why ChSystemNSC is used here rather than the
 ChSystemSMC used by handoff/map.py's rigid-body arena. Confirm this
 combination actually initializes once pychrono.vehicle is fixed; switch to
 ChSystemSMC (and matching contact materials in the vendored rover builder)
@@ -38,6 +44,7 @@ from typing import TYPE_CHECKING, Any
 from ...integration_schemas import RoverSpec, TerrainGeometrySpec, TerrainMaterialSpec, TerrainScenario
 from ...registries import RoverRegistry, TerrainMaterialRegistry
 from ...chrono.rover_factory import build_rover_from_spec
+from ...chrono.system_factory import make_nsc_system
 from ...chrono.terrain_factory import build_scm_terrain
 from .presets import PATCH_DIMENSIONS_XYZ_M, ROVER_IDS, SOIL_PRESET_MATERIAL_IDS
 
@@ -85,11 +92,12 @@ def _make_flat_terrain_scenario(terrain_id: str, material_id: str) -> TerrainSce
     )
 
 
-def _tilted_gravity(chrono: Any, slope_deg: float, magnitude_mps2: float = 9.81) -> Any:
+def _tilted_gravity_mps2(slope_deg: float, magnitude_mps2: float = 9.81) -> tuple[float, float, float]:
+    """Gravity vector for an uphill climb -- see module docstring for the sign fix."""
     import math
 
     theta = math.radians(slope_deg)
-    return chrono.ChVector3d(magnitude_mps2 * math.sin(theta), 0.0, -magnitude_mps2 * math.cos(theta))
+    return (-magnitude_mps2 * math.sin(theta), 0.0, -magnitude_mps2 * math.cos(theta))
 
 
 def build_pilot_scenario(rover_key: str, slope_deg: float, soil_key: str) -> PilotScenario:
@@ -99,9 +107,7 @@ def build_pilot_scenario(rover_key: str, slope_deg: float, soil_key: str) -> Pil
     rover_spec = load_rover_spec(rover_key)
     soil_material = load_soil_material(soil_key)
 
-    system = chrono.ChSystemNSC()
-    system.SetGravitationalAcceleration(_tilted_gravity(chrono, slope_deg))
-    system.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
+    system = make_nsc_system(gravity_mps2=_tilted_gravity_mps2(slope_deg))
 
     terrain_scenario = _make_flat_terrain_scenario(f"scm_pilot_{soil_key}", soil_material.material_id)
     terrain = build_scm_terrain(system, terrain_scenario, soil_material)

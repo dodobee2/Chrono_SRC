@@ -15,12 +15,21 @@ terrain_factory.py untouched so it doesn't collide with other work on the same f
     TerrainScenario.obstacles is kept empty for the same reason (build_rigid_flat_terrain
     raises NotImplementedError otherwise).
 
-ChSystemNSC is used, not SMC: src/chrono/vendor/rover_module_v01/rover_builder.py
-hardcodes ChContactMaterialNSC for the rover's own wheels/chassis, and everything
-verified working in this project so far (rover_factory tests, smoke_scenario.py) uses
-NSC. Mixing NSC rover contact materials into a ChSystemSMC has not been attempted and is
-a likely source of a hard Chrono error, not just an untested combination -- see the
-pilot review this module implements the fixes for.
+ChSystemNSC is used, not SMC -- see src/chrono/system_factory.py for why this
+module routes system/material creation through make_nsc_system() and
+make_nsc_contact_material() instead of calling chrono.ChSystemNSC()/
+ChContactMaterialNSC() directly.
+
+Gravity tilt sign (fixed 2026-07-15): for positive slope_deg to mean
+"climbing uphill" -- matching src/mobility_physics.py::required_traction_force_n's
+assumption that slope resists forward motion (F_req = mg*sin(slope) + ...) --
+gravity's along-travel (+X) component must OPPOSE the rover's forward
+direction, i.e. be negative. This was originally positive, which put gravity
+in the same direction as forward travel and silently simulated rolling
+*downhill* (assisted, not resisted) for every "slope" condition. Caught by
+inspecting real pilot output: distance traveled increased monotonically with
+slope_deg (0.34m -> 3.04m at 0/15 deg) when it should decrease for an uphill
+climb under a fixed torque-limited command.
 """
 
 from __future__ import annotations
@@ -32,6 +41,7 @@ from typing import TYPE_CHECKING, Any
 from ...integration_schemas import RoverSpec, TerrainGeometrySpec, TerrainMaterialSpec, TerrainScenario
 from ...registries import RoverRegistry, TerrainMaterialRegistry
 from ...chrono.rover_factory import build_rover_from_spec
+from ...chrono.system_factory import make_nsc_contact_material, make_nsc_system
 from ...chrono.terrain_factory import build_rigid_flat_terrain
 from .presets import FRICTION_MATERIAL_IDS, OBSTACLE_PRESETS, PATCH_DIMENSIONS_XYZ_M, ROVER_IDS, RigidCondition
 
@@ -123,20 +133,23 @@ def _make_flat_terrain_scenario(terrain_id: str, material_id: str) -> TerrainSce
     )
 
 
-def _tilted_gravity(chrono: Any, slope_deg: float, magnitude_mps2: float = 9.81) -> Any:
+def _tilted_gravity_mps2(slope_deg: float, magnitude_mps2: float = 9.81) -> tuple[float, float, float]:
+    """Gravity vector for an uphill climb: the along-travel (+X) component
+    opposes forward motion (negative), matching required_traction_force_n's
+    F_req = mg*sin(slope) + ... assumption. See module docstring for the
+    2026-07-15 sign fix.
+    """
     import math
 
     theta = math.radians(slope_deg)
-    return chrono.ChVector3d(magnitude_mps2 * math.sin(theta), 0.0, -magnitude_mps2 * math.cos(theta))
+    return (-magnitude_mps2 * math.sin(theta), 0.0, -magnitude_mps2 * math.cos(theta))
 
 
 def _add_obstacle(system: Any, chrono: Any, condition: RigidCondition, patch_length_m: float) -> None:
     if condition.obstacle_key is None:
         return
     preset = OBSTACLE_PRESETS[condition.obstacle_key]
-    material = chrono.ChContactMaterialNSC()
-    material.SetFriction(0.8)
-    material.SetRestitution(0.02)
+    material = make_nsc_contact_material(friction=0.8, restitution=0.02)
     box = chrono.ChBodyEasyBox(0.05, preset.width_m, preset.height_m, 2000.0, True, True, material)
     box.SetName(f"obstacle_{condition.obstacle_key}")
     start_x = -patch_length_m / 2.0 + 0.3
@@ -154,9 +167,7 @@ def build_pilot_scenario(rover_key: str, condition: RigidCondition, torque_fract
     material = load_friction_material(condition.friction_key)
     terrain_context = terrain_context_for(condition)
 
-    system = chrono.ChSystemNSC()
-    system.SetGravitationalAcceleration(_tilted_gravity(chrono, condition.slope_deg))
-    system.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
+    system = make_nsc_system(gravity_mps2=_tilted_gravity_mps2(condition.slope_deg))
 
     terrain_scenario = _make_flat_terrain_scenario(f"rigid_pilot_{condition.condition_id}", material.material_id)
     build_rigid_flat_terrain(system, terrain_scenario, material)

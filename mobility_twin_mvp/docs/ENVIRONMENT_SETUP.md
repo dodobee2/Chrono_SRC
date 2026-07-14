@@ -169,3 +169,31 @@ Practical consequences:
   real-time scanning of freshly-touched `.pyd`/`.dll` files, some other
   first-touch disk/OS contention). Not investigated further -- would need
   tooling (Process Monitor) beyond what's practical here.
+
+## Stronger evidence it's filesystem/AV scanning, not pychrono itself (2026-07-15)
+
+`tests/test_pychrono_smoke.py::test_pychrono_availability_is_import_safe` --
+which calls `get_pychrono_availability()`, a function that by design **never
+imports pychrono** (only `importlib.util.find_spec(...)` and
+`importlib.metadata.version(...)`, see `src/chrono/availability.py`'s own
+docstring) -- reproducibly hung past 45s at the exact same point in test
+order across three separate `pytest` runs. `--collect-only` (which imports
+every test module but runs nothing) completed in 1.36s with no hang, ruling
+out a collection-time/import problem in this project's own code.
+
+This means the hang isn't specific to actually loading a native `.pyd`/`.dll`
+-- even a bare filesystem lookup for whether `pychrono`/`pychrono.vehicle`
+exist can stall. That points squarely at something intercepting filesystem
+access to the `chrono` conda env's `site-packages/pychrono` directory (a
+real-time antivirus scanner is the most likely candidate on Windows) rather
+than anything about the Chrono binaries or this project's code.
+
+**If you want to actually try to fix this** (not attempted -- changes
+system security settings, needs your own judgment call): add a Windows
+Defender (or whatever AV is active) exclusion for
+`C:\Users\<user>\anaconda3\envs\chrono\` and re-test. If that resolves the
+hangs, it confirms AV scanning as the cause. Until then, treat every
+in-process pychrono-adjacent call (imports, `find_spec`, scenario building)
+as capable of hanging unpredictably, isolate it in a subprocess with a hard
+timeout wherever it runs inside automation, and expect to kill/retry manual
+CLI runs (`scripts/run_rigid_transfer_pilot.py`, `scripts/run_scm_pilot.py`).
