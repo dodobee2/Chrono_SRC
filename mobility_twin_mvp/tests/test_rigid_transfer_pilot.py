@@ -87,9 +87,9 @@ def test_identity_baseline_copies_scout_metrics() -> None:
 def test_slope_only_scales_torque_with_heavier_main() -> None:
     scout_rover = rover_registry().load("scout_v01")
     main_rover = rover_registry().load("main_v01")
-    condition = next(c for c in CONDITIONS if c.condition_id == "slope_10deg")
+    condition = next(c for c in CONDITIONS if c.condition_id == "slope_5deg")
     terrain_context = terrain_context_for(condition)
-    scout_summary = _scout_summary("slope_10deg")
+    scout_summary = _scout_summary("slope_5deg")
 
     prediction = slope_only(scout_summary, scout_rover, main_rover, terrain_context)
 

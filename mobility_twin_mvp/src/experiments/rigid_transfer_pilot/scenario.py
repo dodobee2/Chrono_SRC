@@ -1,39 +1,50 @@
 """Builds a rigid-terrain Chrono scenario (system + terrain + optional obstacle + rover).
 
-Reuses terrain_factory.build_rigid_flat_terrain and rover_factory.build_rover_from_spec
-unmodified. Two things this pilot needs that terrain_factory deliberately does NOT
-support are handled locally, here, instead of extending the shared factory (keeps
-terrain_factory.py untouched so it doesn't collide with other work on the same file):
+Reuses terrain_factory.build_rigid_flat_terrain (flat conditions only) and
+rover_factory.build_rover_from_spec unmodified. Two things this pilot needs
+that terrain_factory deliberately does NOT support are handled locally, here,
+instead of extending the shared factory (keeps terrain_factory.py untouched
+so it doesn't collide with other work on the same file):
 
-  - slope: applied by tilting gravity (same technique as
-    src/experiments/scm_pilot/scenario.py -- see its docstring for the documented
-    limitation: straight-line longitudinal response only, no lateral tip-over or
-    approach geometry). The terrain patch itself is always built flat
-    (slope_long_deg=0), which build_rigid_flat_terrain requires.
+  - slope: the floor itself is tilted (see _build_tilted_floor), world
+    gravity stays standard vertical. TerrainScenario.slope_long_deg is kept
+    at 0 for the same reason build_rigid_flat_terrain is only called for
+    flat conditions -- it refuses any slope.
   - obstacle: a single fixed box is added directly with plain pychrono calls after the
     factory-built floor, following the pattern in handoff/map.py::create_fixed_box.
     TerrainScenario.obstacles is kept empty for the same reason (build_rigid_flat_terrain
-    raises NotImplementedError otherwise).
+    raises NotImplementedError otherwise). Not combined with slope in any
+    current CONDITIONS entry (see presets.py) -- _add_obstacle assumes a flat floor.
 
 ChSystemNSC is used, not SMC -- see src/chrono/system_factory.py for why this
 module routes system/material creation through make_nsc_system() and
 make_nsc_contact_material() instead of calling chrono.ChSystemNSC()/
 ChContactMaterialNSC() directly.
 
-Gravity tilt sign (fixed 2026-07-15): for positive slope_deg to mean
-"climbing uphill" -- matching src/mobility_physics.py::required_traction_force_n's
-assumption that slope resists forward motion (F_req = mg*sin(slope) + ...) --
-gravity's along-travel (+X) component must OPPOSE the rover's forward
-direction, i.e. be negative. This was originally positive, which put gravity
-in the same direction as forward travel and silently simulated rolling
-*downhill* (assisted, not resisted) for every "slope" condition. Caught by
-inspecting real pilot output: distance traveled increased monotonically with
-slope_deg (0.34m -> 3.04m at 0/15 deg) when it should decrease for an uphill
-climb under a fixed torque-limited command.
+Slope implementation history (2026-07-15): this originally tilted *gravity*
+instead of the floor (kept world-vertical geometry, rotated the gravity
+vector by slope_deg -- same trick used in src/experiments/scm_pilot). That
+had two problems, discovered in this order:
+  1. The tilt's sign was backwards (fixed once, then found to still be wrong
+     in spirit -- see (2)).
+  2. Independent of sign or commanded torque, a gravity vector with a large
+     horizontal component made the rover pitch over and flip during the
+     zero-torque *settle* phase alone, at 10-15 deg and eventually even 5 deg
+     -- confirmed by running with torque_fraction=0.0 and watching it flip
+     anyway. This is a real numerical instability in how this rigid-body
+     setup responds to non-vertical gravity, not a torque-tuning problem;
+     reducing torque_fraction from 0.6 down to 0.15 changed the outcome
+     essentially not at all (distance stayed ~51-52m either way for
+     slope_15deg). Static tip-over geometry (atan((wheelbase/2)/cg_height))
+     is nowhere near these angles (~59 deg for main_v01), so this was not a
+     real physical tip-over -- switching to an actual tilted floor (standard
+     vertical gravity, physically correct incline contact geometry) avoids
+     the whole failure mode rather than trying to tune around it.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -42,13 +53,16 @@ from ...integration_schemas import RoverSpec, TerrainGeometrySpec, TerrainMateri
 from ...registries import RoverRegistry, TerrainMaterialRegistry
 from ...chrono.rover_factory import build_rover_from_spec
 from ...chrono.system_factory import make_nsc_contact_material, make_nsc_system
-from ...chrono.terrain_factory import build_rigid_flat_terrain
+from ...chrono.terrain_factory import DEFAULT_RESTITUTION, DEFAULT_RIGID_FRICTION, build_rigid_flat_terrain
 from .presets import FRICTION_MATERIAL_IDS, OBSTACLE_PRESETS, PATCH_DIMENSIONS_XYZ_M, ROVER_IDS, RigidCondition
 
 if TYPE_CHECKING:
     from ...chrono.vendor.rover_module_v01.rover_builder import RoverInstance
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+SPAWN_DROP_M = 0.05
+SPAWN_MARGIN_M = 0.3
 
 
 @dataclass(frozen=True)
@@ -133,16 +147,44 @@ def _make_flat_terrain_scenario(terrain_id: str, material_id: str) -> TerrainSce
     )
 
 
-def _tilted_gravity_mps2(slope_deg: float, magnitude_mps2: float = 9.81) -> tuple[float, float, float]:
-    """Gravity vector for an uphill climb: the along-travel (+X) component
-    opposes forward motion (negative), matching required_traction_force_n's
-    F_req = mg*sin(slope) + ... assumption. See module docstring for the
-    2026-07-15 sign fix.
-    """
-    import math
+def _incline_rotation(chrono: Any, slope_deg: float) -> Any:
+    """Rotation tilting local +X (forward/uphill) upward in world Z by slope_deg.
 
-    theta = math.radians(slope_deg)
-    return (-magnitude_mps2 * math.sin(theta), 0.0, -magnitude_mps2 * math.cos(theta))
+    Positive slope_deg means climbing resists forward motion once gravity is
+    projected onto the incline plane, matching required_traction_force_n's
+    F_req = mg*sin(slope) + ... assumption -- verified empirically (not just
+    assumed) after implementing this: distance traveled decreases as
+    slope_deg increases under a fixed torque command (see scenario.py commit
+    message / test output referenced 2026-07-15), the opposite of the
+    gravity-tilt bug this replaced.
+    """
+    return chrono.QuatFromAngleY(-math.radians(slope_deg))
+
+
+def _build_tilted_floor(system: Any, chrono: Any, slope_deg: float, material: TerrainMaterialSpec) -> Any:
+    """Builds a rigid floor tilted by slope_deg. World gravity stays standard vertical.
+
+    The floor's top surface passes through the world origin, at the same
+    rotation returned by _incline_rotation -- build_pilot_scenario's spawn
+    frame uses the identical rotation so the rover starts flush with the
+    incline instead of dropping onto it at the wrong angle.
+    """
+    length_x, width_y, thickness = PATCH_DIMENSIONS_XYZ_M
+    friction = material.friction_nominal if material and material.friction_nominal is not None else DEFAULT_RIGID_FRICTION
+    restitution = material.restitution if material and material.restitution is not None else DEFAULT_RESTITUTION
+
+    floor_material = make_nsc_contact_material(friction=friction, restitution=restitution)
+    floor = chrono.ChBodyEasyBox(length_x, width_y, thickness, 2000.0, True, True, floor_material)
+    floor.SetName(f"rigid_pilot_incline_{slope_deg:g}deg_floor")
+
+    rotation = _incline_rotation(chrono, slope_deg)
+    local_top_center = chrono.ChVector3d(0.0, 0.0, thickness / 2.0)
+    floor.SetPos(-rotation.Rotate(local_top_center))
+    floor.SetRot(rotation)
+    floor.SetFixed(True)
+    floor.EnableCollision(True)
+    system.Add(floor)
+    return floor
 
 
 def _add_obstacle(system: Any, chrono: Any, condition: RigidCondition, patch_length_m: float) -> None:
@@ -152,7 +194,7 @@ def _add_obstacle(system: Any, chrono: Any, condition: RigidCondition, patch_len
     material = make_nsc_contact_material(friction=0.8, restitution=0.02)
     box = chrono.ChBodyEasyBox(0.05, preset.width_m, preset.height_m, 2000.0, True, True, material)
     box.SetName(f"obstacle_{condition.obstacle_key}")
-    start_x = -patch_length_m / 2.0 + 0.3
+    start_x = -patch_length_m / 2.0 + SPAWN_MARGIN_M
     box.SetPos(chrono.ChVector3d(start_x + preset.distance_from_start_m, 0.0, preset.height_m / 2.0))
     box.SetFixed(True)
     box.EnableCollision(True)
@@ -167,15 +209,20 @@ def build_pilot_scenario(rover_key: str, condition: RigidCondition, torque_fract
     material = load_friction_material(condition.friction_key)
     terrain_context = terrain_context_for(condition)
 
-    system = make_nsc_system(gravity_mps2=_tilted_gravity_mps2(condition.slope_deg))
+    system = make_nsc_system()
 
-    terrain_scenario = _make_flat_terrain_scenario(f"rigid_pilot_{condition.condition_id}", material.material_id)
-    build_rigid_flat_terrain(system, terrain_scenario, material)
-    _add_obstacle(system, chrono, condition, PATCH_DIMENSIONS_XYZ_M[0])
+    start_x = -PATCH_DIMENSIONS_XYZ_M[0] / 2.0 + SPAWN_MARGIN_M
+    if abs(condition.slope_deg) > 1e-9:
+        _build_tilted_floor(system, chrono, condition.slope_deg, material)
+        rotation = _incline_rotation(chrono, condition.slope_deg)
+        spawn_local = chrono.ChVector3d(start_x, 0.0, SPAWN_DROP_M)
+        spawn_frame = chrono.ChFramed(rotation.Rotate(spawn_local), rotation)
+    else:
+        terrain_scenario = _make_flat_terrain_scenario(f"rigid_pilot_{condition.condition_id}", material.material_id)
+        build_rigid_flat_terrain(system, terrain_scenario, material)
+        _add_obstacle(system, chrono, condition, PATCH_DIMENSIONS_XYZ_M[0])
+        spawn_frame = chrono.ChFramed(chrono.ChVector3d(start_x, 0.0, SPAWN_DROP_M), chrono.QUNIT)
 
-    spawn_z = 0.05
-    start_x = -PATCH_DIMENSIONS_XYZ_M[0] / 2.0 + 0.3
-    spawn_frame = chrono.ChFramed(chrono.ChVector3d(start_x, 0.0, spawn_z), chrono.QUNIT)
     rover = build_rover_from_spec(system, rover_spec, spawn_frame=spawn_frame)
 
     return PilotScenario(

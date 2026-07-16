@@ -35,6 +35,8 @@ class RunSummary:
     energy_j: float
     mean_pitch_deg: float
     mean_roll_deg: float
+    max_pitch_deg: float
+    max_roll_deg: float
     final_pitch_deg: float
     final_roll_deg: float
     max_contact_count: int
@@ -66,12 +68,21 @@ def summarize(
     torques = [row["mean_wheel_torque_nm"] for row in trajectory]
     pitches = [row["pitch_deg"] for row in trajectory]
     rolls = [row["roll_deg"] for row in trajectory]
+    max_abs_pitch = max((abs(v) for v in pitches), default=0.0)
+    max_abs_roll = max((abs(v) for v in rolls), default=0.0)
     max_contact_count = max((int(row["contact_count"]) for row in trajectory), default=0)
 
+    # Checks the WHOLE trajectory, not just the final frame: a body that
+    # flips early and then keeps tumbling can pass back through an
+    # in-tolerance angle purely by chance right when the run happens to end
+    # (found 2026-07-15 in rigid_pilot_711da49a's slope_15deg run -- rolled
+    # to ~178 deg at t=0.65s and was still rotating at t=6.5s, but the final
+    # frame's angle happened to read under the threshold). A final-frame-only
+    # check would have called that "completed".
     completed = (
         distance_m >= min_distance_for_completion_m
-        and abs(last["pitch_deg"]) < max_pitch_or_roll_for_completion_deg
-        and abs(last["roll_deg"]) < max_pitch_or_roll_for_completion_deg
+        and max_abs_pitch < max_pitch_or_roll_for_completion_deg
+        and max_abs_roll < max_pitch_or_roll_for_completion_deg
     )
     return RunSummary(
         rover_id=rover_id,
@@ -85,6 +96,8 @@ def summarize(
         energy_j=last["energy_j"],
         mean_pitch_deg=_mean([abs(v) for v in pitches]),
         mean_roll_deg=_mean([abs(v) for v in rolls]),
+        max_pitch_deg=max_abs_pitch,
+        max_roll_deg=max_abs_roll,
         final_pitch_deg=last["pitch_deg"],
         final_roll_deg=last["roll_deg"],
         max_contact_count=max_contact_count,
