@@ -30,6 +30,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..integration_schemas import TerrainMaterialSpec, TerrainScenario
+from .factory_loader import load_factory_callable
 from .system_factory import make_nsc_contact_material
 
 DEFAULT_RIGID_FRICTION = 0.8
@@ -133,17 +134,41 @@ def build_scm_terrain(
     return scm
 
 
+def build_factory_terrain(
+    system: Any,
+    terrain: TerrainScenario,
+    material: TerrainMaterialSpec | None = None,
+) -> Any:
+    """Build terrain through a handoff-provided Python factory.
+
+    The factory URI is resolved relative to terrain_scenarios/<terrain_id>/,
+    then relative to the project root. The callable should accept
+    (system, terrain, material) and return any backend-specific artifact.
+    """
+    from pathlib import Path
+
+    if not terrain.geometry.factory_uri:
+        raise ValueError(f"code_factory terrain requires geometry.factory_uri (terrain_id={terrain.terrain_id!r})")
+    project_root = Path(__file__).resolve().parents[2]
+    source_path = project_root / "terrain_scenarios" / terrain.terrain_id / "terrain.yaml"
+    factory = load_factory_callable(terrain.geometry.factory_uri, source_path=source_path, repo_root=project_root)
+    return factory(system, terrain, material)
+
+
 def build_terrain_from_scenario(
     system: Any,
     terrain: TerrainScenario,
     material: TerrainMaterialSpec | None = None,
 ) -> Any:
-    """Dispatch to a rigid or SCM terrain builder based on terrain/material type.
+    """Dispatch to a rigid, SCM, or handoff factory terrain builder.
 
-    Anything other than rigid-flat or SCM-granular raises NotImplementedError
-    -- no silent fallback to a flat floor for terrain that should have
-    rocks/slope/gates.
+    Anything other than rigid-flat, SCM-granular, or explicit code_factory
+    raises NotImplementedError -- no silent fallback to a flat floor for terrain
+    that should have rocks/slope/gates.
     """
+    if terrain.geometry.source_type == "code_factory" or terrain.geometry.factory_uri:
+        return build_factory_terrain(system, terrain, material)
+
     model_type = material.model_type if material else "rigid"
     if model_type == "scm" or terrain.terrain_type == "granular":
         if material is None:

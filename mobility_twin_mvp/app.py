@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import csv
 import json
+import math
 from pathlib import Path
 import subprocess
 import sys
+import uuid
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -12,7 +15,13 @@ import streamlit as st
 
 from src.backends import HeuristicBackend, make_backend
 from src.chrono.availability import get_pychrono_availability
-from src.integration_schemas import RoverSpec, SimulationResult
+from src.experiments.rigid_transfer_pilot.isolated_runner import ConditionRunFailed, run_condition_isolated
+from src.experiments.rigid_transfer_pilot.metrics import RunSummary
+from src.experiments.rigid_transfer_pilot.predictor import PREDICTORS, predict_main_from_scout
+from src.experiments.rigid_transfer_pilot.presets import CONDITIONS, EXTRA_CONDITIONS, JONGMIN_ARENA_CONDITION_ID
+from src.experiments.rigid_transfer_pilot.scenario import load_rover_spec, terrain_context_for
+from src.chrono.subprocess_isolation import IsolatedRunFailed, run_script_isolated
+from src.integration_schemas import ControlProfile, RoverSpec, SimulationResult, TerrainScenario
 from src.registries import (
     ContactPairRegistry,
     ControlProfileRegistry,
@@ -29,6 +38,7 @@ from src.schemas import DEFAULT_MAIN_ROVER, DEFAULT_SCOUT_REFERENCE, MainRoverCo
 APP_DIR = Path(__file__).resolve().parent
 SAMPLE_CSV = APP_DIR / "data" / "sample_patches.csv"
 EXPERIMENT_OUTPUT_DIR = APP_DIR / "data" / "experiment_results"
+RIGID_PILOT_APP_RUNS_DIR = APP_DIR / "data" / "rigid_transfer_pilot" / "app_runs"
 ROVER_REGISTRY = RoverRegistry(APP_DIR / "rover_models", repo_root=APP_DIR)
 TERRAIN_REGISTRY = TerrainRegistry(APP_DIR / "terrain_scenarios", repo_root=APP_DIR)
 CONTROL_REGISTRY = ControlProfileRegistry(APP_DIR / "control_profiles", repo_root=APP_DIR)
@@ -50,6 +60,21 @@ GRADE_COLORS = {
 def ensure_sample_csv() -> None:
     if not SAMPLE_CSV.exists():
         save_sample_csv(SAMPLE_CSV)
+
+
+@st.cache_resource
+def _cached_pychrono_availability():
+    """Caches get_pychrono_availability() for the life of the process.
+
+    That check calls importlib.util.find_spec("pychrono"), which has been
+    observed to hang 45s+ purely from filesystem/AV scanning in this
+    environment even though it never imports pychrono (see
+    docs/ENVIRONMENT_SETUP.md). Every render_* panel that needs it used to
+    call it fresh on every Streamlit rerun; with 3-4 panels doing that on one
+    page, a single click could trigger that hang multiple times per rerun.
+    Availability doesn't change during a running process, so cache it once.
+    """
+    return get_pychrono_availability()
 
 
 def save_simulation_result(result: SimulationResult) -> Path:
@@ -89,18 +114,27 @@ def scout_reference_from_rover_spec(rover: RoverSpec) -> ScoutReferenceConfig:
 
 
 def rover_parameter_comparison_frame(main_rover: RoverSpec, scout_rover: RoverSpec) -> pd.DataFrame:
+    scout_wheel_count = max(int(scout_rover.metadata.get("wheel_count", scout_rover.driven_wheel_count or 4)), 1)
+    main_wheel_count = max(int(main_rover.metadata.get("wheel_count", main_rover.driven_wheel_count or 4)), 1)
     rows = {
-        "질량 kg": {"정찰로버": scout_rover.mass_kg, "메인로버": main_rover.mass_kg},
-        "바퀴 반지름 m": {"정찰로버": scout_rover.wheel_radius_m, "메인로버": main_rover.wheel_radius_m},
-        "바퀴 폭 m": {"정찰로버": scout_rover.wheel_width_m, "메인로버": main_rover.wheel_width_m},
-        "휠베이스 m": {"정찰로버": scout_rover.wheelbase_m, "메인로버": main_rover.wheelbase_m},
-        "좌우 바퀴 간격 m": {"정찰로버": scout_rover.track_width_m, "메인로버": main_rover.track_width_m},
-        "무게중심 높이 m": {"정찰로버": scout_rover.cg_height_m, "메인로버": main_rover.cg_height_m},
-        "지상고 m": {"정찰로버": scout_rover.ground_clearance_m, "메인로버": main_rover.ground_clearance_m},
-        "최대 토크 Nm": {"정찰로버": scout_rover.max_wheel_torque_nm, "메인로버": main_rover.max_wheel_torque_nm},
+        "mass_kg": {"Scout rover": scout_rover.mass_kg, "Main rover": main_rover.mass_kg},
+        "wheel_load_n": {"Scout rover": scout_rover.mass_kg * 9.81 / scout_wheel_count, "Main rover": main_rover.mass_kg * 9.81 / main_wheel_count},
+        "wheel_radius_m": {"Scout rover": scout_rover.wheel_radius_m, "Main rover": main_rover.wheel_radius_m},
+        "wheel_width_m": {"Scout rover": scout_rover.wheel_width_m, "Main rover": main_rover.wheel_width_m},
+        "wheelbase_m": {"Scout rover": scout_rover.wheelbase_m, "Main rover": main_rover.wheelbase_m},
+        "track_width_m": {"Scout rover": scout_rover.track_width_m, "Main rover": main_rover.track_width_m},
+        "cg_height_m": {"Scout rover": scout_rover.cg_height_m, "Main rover": main_rover.cg_height_m},
+        "ground_clearance_m": {"Scout rover": scout_rover.ground_clearance_m, "Main rover": main_rover.ground_clearance_m},
+        "driven_wheel_count": {"Scout rover": scout_rover.driven_wheel_count, "Main rover": main_rover.driven_wheel_count},
+        "max_wheel_torque_nm": {"Scout rover": scout_rover.max_wheel_torque_nm, "Main rover": main_rover.max_wheel_torque_nm},
     }
     return pd.DataFrame.from_dict(rows, orient="index")
 
+
+def rover_parameter_ratio_frame(main_rover: RoverSpec, scout_rover: RoverSpec) -> pd.DataFrame:
+    frame = rover_parameter_comparison_frame(main_rover, scout_rover)
+    ratio = frame["Main rover"] / frame["Scout rover"].replace(0, pd.NA)
+    return pd.DataFrame({"main_to_scout_ratio": ratio.astype(float)})
 def launch_irrlicht_smoke_viewer(duration_s: float = 10.0) -> list[str]:
     command = [
         sys.executable,
@@ -138,8 +172,32 @@ def launch_irrlicht_rover_viewer(
     subprocess.Popen(launch_command, cwd=APP_DIR, creationflags=creationflags)
     return command
 
+
+def launch_irrlicht_jongmin_arena_viewer(
+    rover_key: str,
+    terrain_id: str,
+    duration_s: float = 8.0,
+    command_fraction: float = 0.4,
+) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "src.chrono.irrlicht_jongmin_arena_viewer",
+        "--rover",
+        rover_key,
+        "--terrain",
+        terrain_id,
+        "--duration",
+        f"{duration_s:.3f}",
+        "--command-fraction",
+        f"{command_fraction:.3f}",
+    ]
+    creationflags = subprocess.CREATE_NEW_CONSOLE if hasattr(subprocess, "CREATE_NEW_CONSOLE") else 0
+    launch_command = ["cmd", "/k", *command] if sys.platform.startswith("win") else command
+    subprocess.Popen(launch_command, cwd=APP_DIR, creationflags=creationflags)
+    return command
 def render_integration_usage_guide() -> None:
-    with st.expander("이 탭 사용법", expanded=True):
+    with st.expander("이 탭 사용법", expanded=False):
         st.markdown(
             """
 1. 먼저 `RoverSpec`, `TerrainScenario`, `ControlProfile`을 고릅니다. 이 세 개가 실험의 기본 입력입니다.
@@ -166,42 +224,165 @@ def numeric_items(data: dict) -> dict[str, float]:
     return out
 
 
-def plot_selected_terrain_schematic(terrain) -> plt.Figure:
+def _trajectory_xy_from_result(result: SimulationResult | None) -> pd.DataFrame | None:
+    if result is None or not result.artifacts:
+        return None
+    trajectory_csv = result.artifacts.get("trajectory_csv")
+    if not trajectory_csv or not Path(trajectory_csv).exists():
+        return None
+    trajectory = pd.read_csv(trajectory_csv)
+    x_col = "position_x_m" if "position_x_m" in trajectory.columns else "x_m" if "x_m" in trajectory.columns else None
+    y_col = "position_y_m" if "position_y_m" in trajectory.columns else "y_m" if "y_m" in trajectory.columns else None
+    if x_col is None or y_col is None:
+        return None
+    return trajectory[[x_col, y_col]].rename(columns={x_col: "x_m", y_col: "y_m"})
+
+
+def _estimated_path_from_observation(terrain, observation) -> pd.DataFrame | None:
+    if observation is None:
+        return None
     length_x, width_y, _height_z = terrain.dimensions_xyz_m
-    fig, ax = plt.subplots(figsize=(6, 3.5))
+    start_x = float(observation.pose_xyz_m[0])
+    start_y = float(observation.pose_xyz_m[1])
+    if abs(start_x) < 1e-9 and terrain.terrain_id == "jongmin_arena_v01":
+        start_x = -length_x / 2.0 + 0.25
+    if abs(start_x) < 1e-9 and abs(start_y) < 1e-9:
+        start_x = -length_x / 2.0 + 0.15
+    heading = math.radians(float(observation.heading_deg))
+    distance = max(0.0, min(float(observation.travel_distance_m), length_x * 1.05))
+    samples = 80
+    xs = []
+    ys = []
+    for i in range(samples):
+        ratio = i / max(samples - 1, 1)
+        x = start_x + distance * ratio * math.cos(heading)
+        y = start_y + distance * ratio * math.sin(heading)
+        xs.append(max(-length_x / 2.0, min(length_x / 2.0, x)))
+        ys.append(max(-width_y / 2.0, min(width_y / 2.0, y)))
+    return pd.DataFrame({"x_m": xs, "y_m": ys})
+
+
+def _terrain_airshot_zones(terrain, length_x: float, width_y: float) -> list[tuple[str, float, float, str]]:
+    if terrain.terrain_id == "jongmin_arena_v01":
+        return [
+            ("Flat", -2.75, -2.25, "#d9ead3"),
+            ("Rock", -2.25, -1.25, "#d7b899"),
+            ("Uneven", -1.25, -0.25, "#c7d2fe"),
+            ("Gates", -0.25, 0.75, "#fecaca"),
+            ("Slope", 0.75, 1.75, "#fde68a"),
+            ("Flat/SCM", 1.75, 2.75, "#e5e7eb"),
+        ]
+    if terrain.terrain_id == "T01_flat":
+        return [("Flat rigid", -length_x / 2.0, length_x / 2.0, "#dcfce7")]
+    if terrain.terrain_id == "T02_slope":
+        return [
+            ("Slope entry", -length_x / 2.0, -length_x / 6.0, "#fef3c7"),
+            ("Uphill", -length_x / 6.0, length_x / 6.0, "#fde68a"),
+            ("Side slope", length_x / 6.0, length_x / 2.0, "#fcd34d"),
+        ]
+    if terrain.terrain_id == "T03_single_rock":
+        return [("Single rock", -length_x / 2.0, length_x / 2.0, "#fee2e2")]
+    if terrain.terrain_id == "T04_rock_field":
+        return [
+            ("Mixed entry", -length_x / 2.0, -length_x / 6.0, "#fef3c7"),
+            ("Rock field", -length_x / 6.0, length_x / 2.0, "#fed7aa"),
+        ]
+    return [(terrain.terrain_type.title(), -length_x / 2.0, length_x / 2.0, "#eef2f5")]
+
+
+def plot_terrain_airshot(terrain, observation=None, result: SimulationResult | None = None) -> plt.Figure:
+    length_x, width_y, _height_z = terrain.dimensions_xyz_m
+    fig, ax = plt.subplots(figsize=(8, 4.8))
+
     floor = patches.Rectangle(
         (-length_x / 2.0, -width_y / 2.0),
         length_x,
         width_y,
         facecolor="#eef2f5",
-        edgecolor="#2f3a45",
+        edgecolor="#1f2937",
         linewidth=1.5,
     )
     ax.add_patch(floor)
-    ax.plot([-length_x / 2.0, length_x / 2.0], [0, 0], color="#4b5563", linewidth=1.0, alpha=0.6)
+
+    for label, x0, x1, color in _terrain_airshot_zones(terrain, length_x, width_y):
+        ax.add_patch(
+            patches.Rectangle(
+                (x0, -width_y / 2.0),
+                x1 - x0,
+                width_y,
+                facecolor=color,
+                edgecolor="#ffffff",
+                linewidth=1.0,
+                alpha=0.76,
+            )
+        )
+        ax.text((x0 + x1) / 2.0, width_y / 2.0 - 0.12, label, ha="center", va="top", fontsize=9, color="#111827")
+
+    if abs(float(terrain.slope_long_deg)) > 1e-6 or abs(float(terrain.slope_lat_deg)) > 1e-6:
+        slope_label = f"long {terrain.slope_long_deg:.1f} deg / lat {terrain.slope_lat_deg:.1f} deg"
+        ax.text(-length_x / 2.0 + 0.08, -width_y / 2.0 + 0.12, slope_label, ha="left", va="bottom", fontsize=8, color="#7c2d12")
+
+    if float(terrain.gap_width_m) > 0.0:
+        gap_x = length_x / 2.0 - min(0.35, length_x * 0.2)
+        ax.add_patch(
+            patches.Rectangle(
+                (gap_x - terrain.gap_width_m / 2.0, -width_y / 2.0),
+                max(float(terrain.gap_width_m), 0.015),
+                width_y,
+                facecolor="#111827",
+                alpha=0.22,
+                edgecolor="none",
+            )
+        )
+        ax.text(gap_x, 0.0, "gap", ha="center", va="center", fontsize=8, color="#111827", rotation=90)
+
+    ax.plot([-length_x / 2.0, length_x / 2.0], [0, 0], color="#4b5563", linewidth=1.0, alpha=0.55)
+    ax.annotate("+X travel", xy=(length_x / 2.0 - 0.2, -width_y / 2.0 + 0.12), xytext=(length_x / 2.0 - 1.05, -width_y / 2.0 + 0.12), arrowprops={"arrowstyle": "->", "color": "#111827"}, fontsize=9)
+
     for obstacle in terrain.obstacles:
         ox, oy, _oz = obstacle.pose.xyz_m
         sx, sy, _sz = obstacle.dimensions_xyz_m
-        rect = patches.Rectangle(
-            (ox - sx / 2.0, oy - sy / 2.0),
-            sx,
-            sy,
-            facecolor="#c2410c",
-            edgecolor="#7c2d12",
-            alpha=0.75,
-        )
-        ax.add_patch(rect)
-        ax.text(ox, oy, obstacle.obstacle_id, ha="center", va="center", fontsize=8, color="white")
-    ax.set_title(f"{terrain.terrain_id} 평면도")
-    ax.set_xlabel("X 전진 방향 (m)")
-    ax.set_ylabel("Y 좌우 방향 (m)")
+        if obstacle.kind == "rock":
+            marker = patches.Ellipse((ox, oy), max(sx, 0.02), max(sy, 0.02), facecolor="#92400e", edgecolor="#451a03", alpha=0.78)
+            ax.add_patch(marker)
+        else:
+            rect = patches.Rectangle(
+                (ox - sx / 2.0, oy - sy / 2.0),
+                sx,
+                sy,
+                facecolor="#c2410c",
+                edgecolor="#7c2d12",
+                alpha=0.72,
+            )
+            ax.add_patch(rect)
+        label = obstacle.obstacle_id.replace("_summary", "")
+        ax.text(ox, oy, label, ha="center", va="center", fontsize=8, color="white")
+
+    actual_xy = _trajectory_xy_from_result(result)
+    estimated_xy = _estimated_path_from_observation(terrain, observation)
+    if estimated_xy is not None:
+        ax.plot(estimated_xy["x_m"], estimated_xy["y_m"], color="#16a34a", linewidth=2.0, linestyle="--", label="Scout estimated path")
+        ax.plot(estimated_xy["x_m"].iloc[0], estimated_xy["y_m"].iloc[0], marker="o", color="#15803d", markersize=6)
+    if actual_xy is not None:
+        ax.plot(actual_xy["x_m"], actual_xy["y_m"], color="#2563eb", linewidth=2.4, label="Simulation trajectory")
+        ax.plot(actual_xy["x_m"].iloc[0], actual_xy["y_m"].iloc[0], marker="o", color="#1d4ed8", markersize=6)
+        ax.plot(actual_xy["x_m"].iloc[-1], actual_xy["y_m"].iloc[-1], marker="s", color="#1d4ed8", markersize=6)
+    elif estimated_xy is not None:
+        ax.plot(estimated_xy["x_m"].iloc[-1], estimated_xy["y_m"].iloc[-1], marker="s", color="#15803d", markersize=6)
+
+    ax.set_title(f"{terrain.terrain_id} XY top view")
+    ax.set_xlabel("X travel direction (m)")
+    ax.set_ylabel("Y lateral direction (m)")
     ax.set_xlim(-length_x / 2.0 - 0.1, length_x / 2.0 + 0.1)
     ax.set_ylim(-width_y / 2.0 - 0.1, width_y / 2.0 + 0.1)
     ax.set_aspect("equal", adjustable="box")
-    ax.grid(True, alpha=0.2)
+    ax.grid(True, alpha=0.22)
+    if actual_xy is not None or estimated_xy is not None:
+        ax.legend(loc="lower right", fontsize=8)
     return fig
 
-
+def plot_selected_terrain_schematic(terrain) -> plt.Figure:
+    return plot_terrain_airshot(terrain)
 def infer_rigid_viewer_selection(rover, terrain) -> tuple[str | None, str | None, str]:
     rover_id = rover.rover_id.lower()
     if "main" in rover_id:
@@ -231,47 +412,55 @@ def infer_rigid_viewer_selection(rover, terrain) -> tuple[str | None, str | None
     return rover_key, condition_id, note
 
 
-def render_selected_experiment_visualization(rover, scout_rover, terrain, control) -> None:
+def render_selected_experiment_visualization(rover, scout_rover, terrain, control, observation=None, result: SimulationResult | None = None) -> None:
     st.subheader("선택한 실험 한눈에 보기")
-    st.caption("계산 전에는 입력값만 확인합니다. Irrlicht 시각화는 `실험 실행` 후 결과 아래에서 실행합니다.")
+    st.caption("계산 전에는 입력값만 확인합니다. Irrlicht 시각화와 위험도 결과는 `실험 실행` 후 결과 아래에서 표시합니다.")
 
     rover_compare = rover_parameter_comparison_frame(rover, scout_rover)
+    rover_ratio = rover_parameter_ratio_frame(rover, scout_rover)
     terrain_values = {
-        "길이 X m": terrain.dimensions_xyz_m[0],
-        "폭 Y m": terrain.dimensions_xyz_m[1],
-        "높이/두께 Z m": terrain.dimensions_xyz_m[2],
-        "종방향 경사 deg": terrain.slope_long_deg,
-        "횡방향 경사 deg": terrain.slope_lat_deg,
-        "거칠기 m": terrain.roughness_m,
-        "틈 폭 m": terrain.gap_width_m,
-        "장애물 수": len(terrain.obstacles),
+        "length_x_m": terrain.dimensions_xyz_m[0],
+        "width_y_m": terrain.dimensions_xyz_m[1],
+        "height_z_m": terrain.dimensions_xyz_m[2],
+        "longitudinal_slope_deg": terrain.slope_long_deg,
+        "lateral_slope_deg": terrain.slope_lat_deg,
+        "roughness_m": terrain.roughness_m,
+        "gap_width_m": terrain.gap_width_m,
+        "obstacle_count": len(terrain.obstacles),
     }
     control_values = {
-        "목표 속도 m/s": control.target_speed_mps,
-        "실행 시간 s": control.duration_s,
+        "target_speed_mps": control.target_speed_mps,
+        "duration_s": control.duration_s,
         "throttle": control.throttle,
-        "조향각 deg": control.steering_deg,
+        "steering_deg": control.steering_deg,
     }
 
     tabs = st.tabs(["정찰/메인 로버 비교", "지형", "제어"])
     with tabs[0]:
-        st.caption("정찰로버는 ScoutObservation을 만든 주체이고, 메인로버는 위험도를 예측할 대상입니다.")
-        st.bar_chart(rover_compare)
+        st.caption("정찰로버는 ScoutObservation을 만든 주체이고, 메인로버는 위험도를 예측할 대상입니다. 원값은 단위가 서로 달라 비교가 어려우므로, 핵심 비교는 `메인/정찰 비율` 그래프로 봅니다.")
+        st.write("main_to_scout_ratio")
+        st.bar_chart(rover_ratio)
+        st.dataframe(rover_ratio, use_container_width=True)
+        st.write("원값")
         st.dataframe(rover_compare, use_container_width=True)
+        if rover.rover_id in {"main_v01", "main_rover_baseline"}:
+            st.caption("참고: `main_v01`과 `main_rover_baseline`은 현재 같은 물리 치수로 맞춰져 있어서 둘 사이를 바꿔도 물리량 비교값은 거의 변하지 않습니다. 차이는 heuristic fallback 접촉값 유무입니다.")
     with tabs[1]:
-        st.warning("종민님이 전달한 arena/map.py 전체 환경은 아직 이 Contract 선택값에서 직접 생성되지 않습니다. 현재는 YAML 요약도와 rigid pilot preset 변환으로 확인하며, 다음 단계에서 TerrainFactory가 Jongmin arena를 호출하도록 연결해야 합니다.")
+        if terrain.geometry.source_type == "code_factory" or terrain.geometry.factory_uri:
+            st.success(f"이 지형은 `{terrain.geometry.factory_uri}` factory로 연결됩니다. Irrlicht 시각화에서는 선택한 지형의 PyChrono factory를 호출합니다.")
+        else:
+            st.info("이 지형은 YAML 요약값과 기본 schematic으로 확인합니다. 별도 factory_uri가 없으면 현재 로버 viewer는 가장 가까운 rigid pilot preset을 사용합니다.")
         left, right = st.columns([1, 1])
         with left:
-            st.pyplot(plot_selected_terrain_schematic(terrain))
+            st.pyplot(plot_terrain_airshot(terrain, observation=observation, result=result))
         with right:
-            st.bar_chart(pd.Series(terrain_values, name="값"))
-            st.dataframe(pd.Series(terrain_values, name="값").to_frame(), use_container_width=True)
+            st.bar_chart(pd.Series(terrain_values, name="value"))
+            st.dataframe(pd.Series(terrain_values, name="value").to_frame(), use_container_width=True)
     with tabs[2]:
-        st.bar_chart(pd.Series(control_values, name="값"))
-        st.dataframe(pd.Series(control_values, name="값").to_frame(), use_container_width=True)
-
+        st.bar_chart(pd.Series(control_values, name="value"))
+        st.dataframe(pd.Series(control_values, name="value").to_frame(), use_container_width=True)
 def render_pychrono_environment() -> None:
-    availability = get_pychrono_availability()
+    availability = _cached_pychrono_availability()
     st.subheader("PyChrono 환경 확인")
     cols = st.columns(5)
     cols[0].metric("PyChrono", "사용 가능" if availability.pychrono_available else "사용 불가")
@@ -449,32 +638,32 @@ def render_scout_to_main_prediction_preview(rover, scout_rover, terrain, control
 
     metrics = result.metrics
     scout_inputs = {
-        "정찰 slip": metrics.get("observation_mean_slip"),
-        "정찰 sinkage m": metrics.get("observation_mean_sinkage_m"),
-        "정찰 wheel torque Nm": resolved_observation.mean_wheel_torque_nm,
-        "정찰 COT": resolved_observation.cot,
-        "진동 RMS g": resolved_observation.vibration_rms_g,
-        "종방향 경사 deg": resolved_observation.slope_long_deg,
-        "횡방향 경사 deg": resolved_observation.slope_lat_deg,
-        "장애물 높이 m": resolved_observation.obstacle_height_m,
-        "gap 폭 m": resolved_observation.gap_width_m,
+        "scout_slip": metrics.get("observation_mean_slip"),
+        "scout_sinkage_m": metrics.get("observation_mean_sinkage_m"),
+        "scout_wheel_torque_nm": resolved_observation.mean_wheel_torque_nm,
+        "scout_cot": resolved_observation.cot,
+        "vibration_rms_g": resolved_observation.vibration_rms_g,
+        "longitudinal_slope_deg": resolved_observation.slope_long_deg,
+        "lateral_slope_deg": resolved_observation.slope_lat_deg,
+        "obstacle_height_m": resolved_observation.obstacle_height_m,
+        "gap_width_m": resolved_observation.gap_width_m,
     }
     predicted_main = {
-        "예측 메인 slip": metrics.get("physics_predicted_main_slip"),
-        "예측 메인 sinkage m": metrics.get("physics_predicted_main_sinkage_m"),
-        "요구 견인력 F_req N": metrics.get("physics_f_req_n"),
-        "토크 한계 힘 F_torque N": metrics.get("physics_f_torque_n"),
-        "마찰 한계 힘 F_friction N": metrics.get("physics_f_friction_n"),
-        "사용 가능 힘 F_avail N": metrics.get("physics_f_avail_n"),
-        "견인 여유 N": metrics.get("physics_traction_margin_n"),
-        "전복 여유 deg": metrics.get("physics_tipover_margin_deg"),
+        "predicted_main_slip": metrics.get("physics_predicted_main_slip"),
+        "predicted_main_sinkage_m": metrics.get("physics_predicted_main_sinkage_m"),
+        "required_traction_n": metrics.get("physics_f_req_n"),
+        "torque_limit_force_n": metrics.get("physics_f_torque_n"),
+        "friction_limit_force_n": metrics.get("physics_f_friction_n"),
+        "available_force_n": metrics.get("physics_f_avail_n"),
+        "traction_margin_n": metrics.get("physics_traction_margin_n"),
+        "tipover_margin_deg": metrics.get("physics_tipover_margin_deg"),
     }
     prediction_summary = {
-        "최종 위험도": result.final_risk,
-        "예측 신뢰도": result.prediction_confidence,
+        "final_risk": result.final_risk,
+        "prediction_confidence": result.prediction_confidence,
         "contact mu_eff": metrics.get("contact_mu_eff"),
         "contact crr_eff": metrics.get("contact_crr_eff"),
-        "선택 정찰 wheel load N": scout_reference.wheel_load_n,
+        "selected_scout_wheel_load_n": scout_reference.wheel_load_n,
     }
 
     st.markdown(
@@ -499,15 +688,15 @@ def render_scout_to_main_prediction_preview(rover, scout_rover, terrain, control
 
     tabs = st.tabs(["정찰 입력", "메인 예측값", "위험도 구성", "계산식 메모"])
     with tabs[0]:
-        scout_series = pd.Series({k: v for k, v in scout_inputs.items() if v is not None}, name="값")
+        scout_series = pd.Series({k: v for k, v in scout_inputs.items() if v is not None}, name="value")
         st.bar_chart(scout_series)
         st.dataframe(scout_series.to_frame(), use_container_width=True)
     with tabs[1]:
-        main_series = pd.Series({k: v for k, v in predicted_main.items() if v is not None}, name="값")
+        main_series = pd.Series({k: v for k, v in predicted_main.items() if v is not None}, name="value")
         st.bar_chart(main_series)
         st.dataframe(main_series.to_frame(), use_container_width=True)
         st.write("요약")
-        summary_series = pd.Series({k: v for k, v in prediction_summary.items() if v is not None}, name="값")
+        summary_series = pd.Series({k: v for k, v in prediction_summary.items() if v is not None}, name="value")
         st.dataframe(summary_series.to_frame(), use_container_width=True)
     with tabs[2]:
         risk_series = pd.Series(result.risk_components, name="risk")
@@ -535,27 +724,273 @@ def render_post_run_irrlicht_viewer(result: SimulationResult, rover, scout_rover
         st.info("현재 결과는 박스 낙하 smoke 결과라 로버 viewer와 연결하지 않습니다.")
         return
 
-    availability = get_pychrono_availability()
+    availability = _cached_pychrono_availability()
+    is_jongmin_arena = terrain.terrain_id == "jongmin_arena_v01" or terrain.geometry.source_type == "code_factory"
+    viewer_duration = st.number_input(
+        "시각화 실행 시간 (초)", min_value=1.0, max_value=30.0, value=float(min(control.duration_s, 10.0)), step=1.0, key="post_viewer_duration"
+    )
+    command_fraction = st.slider(
+        "시각화 명령 비율", min_value=0.0, max_value=1.0, value=max(0.05, min(float(control.throttle), 1.0)), step=0.05, key="post_viewer_command_fraction"
+    )
+
+    if is_jongmin_arena:
+        st.info(f"viewer: Jongmin arena factory, terrain={terrain.terrain_id}, rover sequence=scout_then_main")
+        disabled = not (availability.pychrono_available and availability.irrlicht_module_available)
+        if st.button("계산 결과를 Irrlicht로 보기", disabled=disabled):
+            try:
+                command = launch_irrlicht_jongmin_arena_viewer("scout_then_main", terrain.terrain_id, viewer_duration, command_fraction)
+                st.success("종민님 arena에서 정찰로버 주행 후 메인로버 주행 viewer를 별도 창으로 열었습니다. 첫 창을 닫으면 다음 로버 주행이 시작됩니다.")
+                st.code(" ".join(command))
+            except Exception as exc:
+                st.error(f"viewer 실행 실패: {type(exc).__name__}: {exc}")
+        if disabled:
+            st.warning("PyChrono/Irrlicht가 없어서 종민님 arena viewer를 열 수 없습니다. Streamlit을 chrono 환경에서 실행했는지 확인하세요.")
+        return
+
     _rover_key, condition_id, note = infer_rigid_viewer_selection(rover, terrain)
     st.write(note)
     if condition_id:
         st.info(f"viewer preset: scout_then_main, condition={condition_id}")
     disabled = not (availability.pychrono_available and availability.irrlicht_module_available and condition_id)
-    viewer_duration = st.number_input(
-        "시각화 실행 시간 (초)", min_value=1.0, max_value=30.0, value=float(min(control.duration_s, 10.0)), step=1.0, key="post_viewer_duration"
-    )
-    torque_fraction = st.slider(
-        "시각화 토크 비율", min_value=0.0, max_value=1.0, value=max(0.05, min(float(control.throttle), 1.0)), step=0.05, key="post_viewer_torque"
-    )
     if st.button("계산 결과를 Irrlicht로 보기", disabled=disabled):
         try:
-            command = launch_irrlicht_rover_viewer("scout_then_main", condition_id, viewer_duration, torque_fraction)
+            command = launch_irrlicht_rover_viewer("scout_then_main", condition_id, viewer_duration, command_fraction)
             st.success("정찰로버 주행 후 메인로버 주행 viewer를 별도 창으로 열었습니다. 첫 창을 닫으면 다음 로버 주행이 시작됩니다.")
             st.code(" ".join(command))
         except Exception as exc:
             st.error(f"viewer 실행 실패: {type(exc).__name__}: {exc}")
     if disabled:
         st.warning("PyChrono/Irrlicht가 없거나, 선택한 로버/지형을 현재 viewer preset으로 변환할 수 없습니다. Streamlit을 chrono 환경에서 실행했는지 확인하세요.")
+def render_rigid_transfer_live_run() -> None:
+    """3-B. 실제 PyChrono 강체 시뮬레이션을 앱 버튼으로 실행하고 결과를 바로 보여준다.
+
+    Above this, "실험 실행"/"PyChrono 설치 확인 실행" only ever call
+    HeuristicBackend or the box-drop smoke backend -- neither runs a real
+    rover driving in Chrono. This panel runs the verified rigid_transfer_pilot
+    scenario (scout_v01 -> main_v01, rigid terrain) end to end: real Chrono
+    dynamics for both rovers, then the same predictors used by
+    scripts/run_rigid_transfer_pilot.py, so distinguishing this from the
+    heuristic preview above matters.
+
+    Condition choices are restricted to rigid_transfer_pilot.presets.CONDITIONS
+    (excludes slope_10deg/slope_15deg -- see presets.py's UNSTABLE_CONDITIONS
+    comment for why those two reliably flip main_v01 over).
+
+    Each Chrono run happens in its own subprocess with a timeout+retry (see
+    isolated_runner.run_condition_isolated) because scenario building in this
+    environment hangs 60s+ roughly 1-in-3-to-4 attempts -- never call pychrono
+    in-process from the Streamlit server itself.
+    """
+    st.subheader("3-B. 실제 Chrono 강체 시뮬레이션 실행 (Scout → Main)")
+    st.caption(
+        "위 프리뷰와 달리 이 버튼은 실제 PyChrono 강체 동역학을 돌립니다 "
+        "(scout_v01, main_v01 고정 / 로직 지형 조건). 수치/허리스틱 공식이 아니라 "
+        "매 step마다 충돌/콘택트/적분 물리를 계산해 얻은 결과입니다."
+    )
+
+    availability = _cached_pychrono_availability()
+    if not availability.pychrono_available:
+        st.warning(f"PyChrono가 없어 실행할 수 없습니다: {availability.diagnostic_message}")
+        return
+
+    condition_ids = [condition.condition_id for condition in CONDITIONS] + [c.condition_id for c in EXTRA_CONDITIONS]
+    condition_id = st.selectbox(
+        "시험 조건 (검증된 안정 조건 + 종민님 아레나)",
+        condition_ids,
+        key="rigid_live_condition_id",
+    )
+    condition = next(c for c in CONDITIONS + EXTRA_CONDITIONS if c.condition_id == condition_id)
+    is_jongmin_arena = condition_id == JONGMIN_ARENA_CONDITION_ID
+    if is_jongmin_arena:
+        st.warning(
+            "종민님 아레나(jongmin_arena_v01)는 코덱스가 만든 미검토 5구역 지형입니다. "
+            "flat/slope_5deg 등과 달리 오늘 안정성 검증을 거치지 않았고, mesh/암석 구역 생성 때문에 "
+            "빌드 자체가 다른 조건보다 훨씬 오래 걸립니다 (단발 시도 90초 이상 관측됨) -- "
+            "재시도 타임아웃을 150초로 늘려서 실행합니다."
+        )
+    per_attempt_timeout_s = 150.0 if is_jongmin_arena else 60.0
+
+    run_clicked = st.button("Scout+Main Chrono 실행", key="rigid_live_run_button", type="primary")
+
+    if run_clicked:
+        run_id = f"app_run_{uuid.uuid4().hex[:8]}"
+        out_dir = RIGID_PILOT_APP_RUNS_DIR / run_id / condition_id
+        progress = st.empty()
+
+        def _on_attempt(attempt: int, max_attempts: int, status: str, *, _rover_label: str) -> None:
+            messages = {
+                "starting": f"{_rover_label} 시도 {attempt}/{max_attempts} ...",
+                "timeout": f"{_rover_label} 시도 {attempt}/{max_attempts} 타임아웃, 재시도 중...",
+                "failed": f"{_rover_label} 시도 {attempt}/{max_attempts} 실패, 재시도 중...",
+                "ok": f"{_rover_label} 완료.",
+            }
+            progress.info(messages[status])
+
+        try:
+            with st.spinner("Chrono 시뮬레이션 실행 중... (재시도 포함 최대 몇 분 걸릴 수 있습니다)"):
+                scout_trajectory, scout_summary = run_condition_isolated(
+                    "scout", condition_id, out_dir / "scout", timeout_s=per_attempt_timeout_s,
+                    on_attempt=lambda a, m, s: _on_attempt(a, m, s, _rover_label="Scout"),
+                )
+                main_trajectory, main_summary = run_condition_isolated(
+                    "main", condition_id, out_dir / "main", timeout_s=per_attempt_timeout_s,
+                    on_attempt=lambda a, m, s: _on_attempt(a, m, s, _rover_label="Main (ground truth)"),
+                )
+        except ConditionRunFailed as exc:
+            progress.empty()
+            st.error(f"Chrono 실행 실패: {exc}")
+            return
+
+        progress.empty()
+        scout_spec = load_rover_spec("scout")
+        main_spec = load_rover_spec("main")
+        terrain_context = terrain_context_for(condition)
+        predictions = {
+            name: predict_main_from_scout(name, scout_summary, scout_spec, main_spec, terrain_context, None)
+            for name in PREDICTORS
+        }
+        st.session_state["rigid_live_result"] = {
+            "condition_id": condition_id,
+            "scout_trajectory": scout_trajectory,
+            "main_trajectory": main_trajectory,
+            "scout_summary": scout_summary,
+            "main_summary": main_summary,
+            "predictions": predictions,
+            "out_dir": str(out_dir),
+        }
+
+    live_result = st.session_state.get("rigid_live_result")
+    if not live_result or live_result["condition_id"] != condition_id:
+        st.info("조건을 고르고 버튼을 누르면 실제 Chrono 결과가 여기에 표시됩니다.")
+        return
+
+    scout_summary: RunSummary = live_result["scout_summary"]
+    main_summary: RunSummary = live_result["main_summary"]
+    st.success(f"완료 (결과 저장 위치: {live_result['out_dir']})")
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Main 주행 거리 (m)", f"{main_summary.distance_m:.2f}", f"scout {scout_summary.distance_m:.2f}")
+    col2.metric("Main 평균 slip", f"{main_summary.mean_slip:.3f}", f"scout {scout_summary.mean_slip:.3f}")
+    col3.metric("Main 평균 토크 (Nm)", f"{main_summary.mean_wheel_torque_nm:.3f}", f"scout {scout_summary.mean_wheel_torque_nm:.3f}")
+    col4.metric("Main 완주 여부", "완주" if main_summary.completed else "미완주", f"scout {'완주' if scout_summary.completed else '미완주'}")
+
+    st.markdown("**Scout 기반 예측 vs Main 실측치 (둘 다 실제 Chrono 값)**")
+    rows = []
+    for name, prediction in live_result["predictions"].items():
+        row = {"predictor_name": name, "status": prediction.status}
+        if prediction.metrics:
+            for metric_name in ("mean_slip", "mean_wheel_torque_nm", "energy_j", "distance_m"):
+                predicted = prediction.metrics[metric_name]
+                actual = getattr(main_summary, metric_name)
+                row[f"{metric_name}_predicted"] = predicted
+                row[f"{metric_name}_actual"] = actual
+                row[f"{metric_name}_abs_error"] = abs(predicted - actual)
+        rows.append(row)
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.caption("user_formula는 predictor_config가 없으면 NOT_CONFIGURED입니다 (임의 값으로 채우지 않음).")
+
+    scout_df = pd.DataFrame(live_result["scout_trajectory"])
+    main_df = pd.DataFrame(live_result["main_trajectory"])
+    if not scout_df.empty and not main_df.empty:
+        chart_df = pd.DataFrame(
+            {
+                "t_s": main_df["t_s"].astype(float),
+                "main_x_m": main_df["x_m"].astype(float),
+            }
+        ).set_index("t_s")
+        chart_df["scout_x_m"] = pd.Series(scout_df["x_m"].astype(float).values, index=scout_df["t_s"].astype(float).values).reindex(
+            chart_df.index, method="nearest"
+        )
+        st.line_chart(chart_df)
+
+
+LIVE_FREE_RUN_SCRIPT = APP_DIR / "scripts" / "_run_live_rover_drive.py"
+LIVE_FREE_RUN_OUTPUT_DIR = APP_DIR / "data" / "live_rover_drive" / "app_runs"
+
+
+def render_live_chrono_free_run(rover: RoverSpec, rover_id: str, terrain: TerrainScenario, terrain_id: str, control: ControlProfile, control_id: str) -> None:
+    """3-C. 위 1번에서 고른 로버/지형/제어 그대로 실제 Chrono로 실행한다 (완전 자유, 실험적).
+
+    3-B와 달리 scout_v01/main_v01 + 검증된 7개 조건으로 제한하지 않고, registry에
+    있는 임의의 rover/terrain/control 조합을 그대로 real Chrono로 시도한다.
+
+    이건 대부분 실패할 수 있다 -- 의도된 동작이다: build_rigid_flat_terrain은 slope나
+    장애물이 있으면 그대로 거부하고, terrain_type "rocky"/"mixed"는 아직 빌더가 없고,
+    SCM 지형은 이 환경에서 pychrono.vehicle import 자체가 실패하고, code_factory
+    지형(예: 종민님 arena)은 검토되지 않았다. 가짜로 성공한 것처럼 보여주지 않고
+    실패 메시지를 그대로 노출한다 (terrain_factory.py의 각 빌더 docstring 참고).
+    """
+    st.subheader("3-C. 실제 Chrono 강체 시뮬레이션 실행 (선택한 로버+지형+제어, 완전 자유/실험적)")
+    st.warning(
+        "위 1번에서 고른 로버/지형/제어 조합을 그대로 실제 PyChrono로 실행합니다. "
+        "지형 종류에 따라 즉시 실패할 수 있습니다 (slope 있는 rigid 지형, rocky/mixed 지형, "
+        "SCM 지형, 미검증 code_factory 지형은 현재 미지원). 실패도 있는 그대로 보여줍니다."
+    )
+
+    availability = _cached_pychrono_availability()
+    if not availability.pychrono_available:
+        st.info(f"PyChrono가 없어 실행할 수 없습니다: {availability.diagnostic_message}")
+        return
+
+    run_clicked = st.button("선택한 조건으로 실제 Chrono 실행 (v2, 완전 자유)", key="live_free_run_button")
+
+    if run_clicked:
+        run_id = f"app_run_{uuid.uuid4().hex[:8]}"
+        out_dir = LIVE_FREE_RUN_OUTPUT_DIR / run_id
+        progress = st.empty()
+
+        def _on_attempt(attempt: int, max_attempts: int, status: str) -> None:
+            messages = {
+                "starting": f"시도 {attempt}/{max_attempts} ...",
+                "timeout": f"시도 {attempt}/{max_attempts} 타임아웃, 재시도 중...",
+                "failed": f"시도 {attempt}/{max_attempts} 실패, 재시도 중...",
+                "ok": "완료.",
+            }
+            progress.info(messages[status])
+
+        try:
+            with st.spinner("Chrono 실행 중... (지원되지 않는 조합이면 곧 실패로 끝납니다)"):
+                run_script_isolated(
+                    LIVE_FREE_RUN_SCRIPT,
+                    ["--rover-id", rover_id, "--terrain-id", terrain_id, "--control-id", control_id, "--out", str(out_dir)],
+                    required_output_files=[out_dir / "trajectory.csv", out_dir / "summary.json"],
+                    on_attempt=_on_attempt,
+                )
+        except IsolatedRunFailed as exc:
+            progress.empty()
+            st.error(f"실제 Chrono 실행 실패: {exc}")
+            st.caption("이 실패 메시지는 그대로 지형/로버 조합의 현재 한계를 보여주는 것입니다 (예: NotImplementedError, 필수 metadata 누락, pychrono.vehicle import 실패 등).")
+            st.session_state.pop("live_free_run_result", None)
+            return
+
+        progress.empty()
+        trajectory_rows = list(csv.DictReader((out_dir / "trajectory.csv").open(encoding="utf-8")))
+        summary = RunSummary(**json.loads((out_dir / "summary.json").read_text(encoding="utf-8")))
+        st.session_state["live_free_run_result"] = {
+            "signature": (rover_id, terrain_id, control_id),
+            "trajectory": trajectory_rows,
+            "summary": summary,
+            "out_dir": str(out_dir),
+        }
+
+    live_result = st.session_state.get("live_free_run_result")
+    if not live_result or live_result["signature"] != (rover_id, terrain_id, control_id):
+        st.info("위 1번 선택 조합으로 버튼을 누르면 실제 Chrono 결과가 여기에 표시됩니다.")
+        return
+
+    summary: RunSummary = live_result["summary"]
+    st.success(f"완료 (결과 저장 위치: {live_result['out_dir']})")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("주행 거리 (m)", f"{summary.distance_m:.2f}")
+    col2.metric("평균 slip", f"{summary.mean_slip:.3f}")
+    col3.metric("평균 토크 (Nm)", f"{summary.mean_wheel_torque_nm:.3f}")
+    col4.metric("완주 여부", "완주" if summary.completed else "미완주")
+
+    trajectory_df = pd.DataFrame(live_result["trajectory"])
+    if not trajectory_df.empty:
+        chart_df = pd.DataFrame({"t_s": trajectory_df["t_s"].astype(float), "x_m": trajectory_df["x_m"].astype(float)}).set_index("t_s")
+        st.line_chart(chart_df)
+
 
 def render_integration_experiment() -> None:
     st.caption("통합 실험: 로버 모델 + 지형 시나리오 + 정찰 관측 + 접촉 조건 + 제어 프로파일을 SimulationResult로 변환합니다.")
@@ -569,6 +1004,7 @@ def render_integration_experiment() -> None:
         st.warning("YAML 파일을 찾을 수 없습니다. rover_models, terrain_scenarios, control_profiles 폴더를 확인하세요.")
         return
 
+    st.subheader("1. 실험 입력 선택")
     col1, col2, col3, col4 = st.columns(4)
     target_rover_ids = [item for item in rover_ids if "main" in item] or rover_ids
     scout_rover_ids = [item for item in rover_ids if "scout" in item] or rover_ids
@@ -583,6 +1019,7 @@ def render_integration_experiment() -> None:
     control = CONTROL_REGISTRY.load(control_id)
     st.session_state["selected_rover_id"] = rover_id
     st.caption("메인로버는 위험도를 예측할 대상이고, 정찰로버는 ScoutObservation을 만든 로버입니다. 아래 예측식에는 선택한 정찰로버의 바퀴 하중/반지름/폭이 들어갑니다.")
+
     observation_matches = OBSERVATION_REGISTRY.ids_for(terrain_id=terrain_id, control_profile_id=control_id)
     observation_options = ["<없음: 가능한 경우 기존값 사용>"] + observation_matches
     contact_matches = CONTACT_PAIR_REGISTRY.ids_for(rover.wheel_material_id, terrain.material_id)
@@ -604,8 +1041,9 @@ def render_integration_experiment() -> None:
     if contact_pair and contact_pair.source == "assumed":
         st.info(f"Contact pair `{contact_pair.contact_pair_id}` uses assumed parameters, confidence={contact_pair.confidence:.2f}.")
 
-    render_selected_experiment_visualization(rover, scout_rover, terrain, control)
-    render_scout_to_main_prediction_preview(rover, scout_rover, terrain, control, observation, contact_pair)
+    st.subheader("2. 선택 조건 확인")
+    render_selected_experiment_visualization(rover, scout_rover, terrain, control, observation=observation)
+    st.info("아직 계산하지 않았습니다. 아래 `실험 실행`을 누르면 정찰 관측값으로 메인로버 위험도를 계산하고 결과/시각화 버튼을 표시합니다.")
 
     with st.expander("선택한 handoff schema 원본", expanded=False):
         tabs = st.tabs(["Main RoverSpec", "Scout RoverSpec", "TerrainScenario", "ScoutObservation", "ContactPairSpec", "ControlProfile"])
@@ -616,6 +1054,17 @@ def render_integration_experiment() -> None:
         tabs[4].json({} if contact_pair is None else contact_pair.to_dict())
         tabs[5].json(control.to_dict())
 
+    selection_signature = {
+        "rover_id": rover_id,
+        "scout_rover_id": scout_rover_id,
+        "terrain_id": terrain_id,
+        "control_id": control_id,
+        "observation_id": observation_id,
+        "contact_pair_id": contact_pair_id,
+        "backend_id": backend_id,
+    }
+
+    st.subheader("3. 실행")
     col_run_1, col_run_2 = st.columns(2)
     if col_run_1.button("실험 실행", type="primary"):
         backend = HeuristicBackend(scout_reference=scout_reference_from_rover_spec(scout_rover)) if backend_id == "heuristic" else make_backend(backend_id)
@@ -623,6 +1072,7 @@ def render_integration_experiment() -> None:
         output_path = save_simulation_result(result)
         st.session_state["last_simulation_result"] = result
         st.session_state["last_simulation_result_path"] = str(output_path)
+        st.session_state["last_simulation_signature"] = selection_signature
 
     if col_run_2.button("PyChrono 설치 확인 실행"):
         with st.status("실행 중", expanded=True) as status:
@@ -631,6 +1081,9 @@ def render_integration_experiment() -> None:
             output_path = save_simulation_result(result)
             st.session_state["last_simulation_result"] = result
             st.session_state["last_simulation_result_path"] = str(output_path)
+            smoke_signature = dict(selection_signature)
+            smoke_signature["backend_id"] = "pychrono_smoke"
+            st.session_state["last_simulation_signature"] = smoke_signature
             if result.status == "completed":
                 status.update(label="완료", state="complete")
             elif result.status == "timeout":
@@ -639,10 +1092,34 @@ def render_integration_experiment() -> None:
                 status.update(label="실패", state="error")
 
     result = st.session_state.get("last_simulation_result")
-    if result:
-        render_simulation_result(result, st.session_state.get("last_simulation_result_path"))
+    result_signature = st.session_state.get("last_simulation_signature")
+    if result and result_signature == selection_signature:
+        st.subheader("4. 예측 결과 해석")
+        render_scout_to_main_prediction_preview(rover, scout_rover, terrain, control, observation, contact_pair)
+        st.subheader("5. 주행 궤적 항공샷")
+        st.caption("실제 trajectory CSV가 있으면 파란색으로 표시합니다. heuristic 결과처럼 궤적 파일이 없으면 정찰 관측 거리 기반 추정 경로를 초록색 점선으로 표시합니다.")
+        st.pyplot(plot_terrain_airshot(terrain, observation=observation, result=result))
         render_post_run_irrlicht_viewer(result, rover, scout_rover, terrain, control)
+        with st.expander("6. 표준 SimulationResult 원본/저장 정보", expanded=False):
+            render_simulation_result(result, st.session_state.get("last_simulation_result_path"))
+    elif result:
+        st.info("이전에 계산한 결과가 있지만 현재 선택값과 다릅니다. 현재 선택값으로 보려면 `실험 실행`을 다시 누르세요.")
 
+    # 3-B/3-C는 위 heuristic 흐름과 완전히 별개의 실험적 real-Chrono 패널이다.
+    # 이 안에서 나는 예외가 위 1~6번 표시를 절대 막지 못하도록 맨 뒤에 두고
+    # try/except로 감싼다 (2026-07-16: 이 두 패널을 3번 실행 버튼 사이에 끼워
+    # 넣었더니 예측 결과 해석이 안 보인다는 리포트를 받고 재배치함).
+    st.divider()
+    try:
+        render_rigid_transfer_live_run()
+    except Exception as exc:
+        st.error(f"3-B 패널 오류: {type(exc).__name__}: {exc}")
+    st.divider()
+    try:
+        render_live_chrono_free_run(rover, rover_id, terrain, terrain_id, control, control_id)
+    except Exception as exc:
+        st.error(f"3-C 패널 오류: {type(exc).__name__}: {exc}")
+    st.divider()
 
 def plot_traversability_map(results: pd.DataFrame) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(8, 5))

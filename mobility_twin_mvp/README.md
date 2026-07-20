@@ -32,6 +32,14 @@ streamlit run app.py --browser.gatherUsageStats false
 - **Main-Rover Mobility Risk**: rover-specific risk evaluated from a selected rover, terrain, control, observation, and backend.
 - **Rover-specific Traversability Layer**: the map layer produced for a particular main rover configuration.
 
+
+## Team Handoff Structure
+
+Team members can add rover, terrain, control, material, contact, and scout observation files without editing `app.py`. See [docs/HANDOFF_STRUCTURE.md](docs/HANDOFF_STRUCTURE.md). Validate added files with:
+
+```bash
+python tools/validate_handoff.py
+```
 ## Integration Contract V2
 
 The integration path is:
@@ -254,15 +262,34 @@ representation. Skeleton implemented and unit-tested; end-to-end execution is bl
 ## Rigid-Terrain Scout-to-Main Transfer Pilot
 
 Since SCM is blocked, `src/experiments/rigid_transfer_pilot/` asks the same transfer question on
-rigid terrain only (flat, 3 slopes, 3 friction levels, 2 obstacle heights -- 9 conditions), which
+rigid terrain only (flat, one slope, 3 friction levels, 2 obstacle heights -- 7 conditions), which
 needs only `pychrono` core, not `pychrono.vehicle`. Reuses `rover_factory.py` and
-`terrain_factory.py` unmodified; slope is applied by tilting gravity and the obstacle condition is
-built with a small local helper, both to avoid touching the shared factories. Runs a torque-limited
-straight command (no ideal wheel-speed motor) and compares four predictors (`identity_baseline`,
-`slope_only`, `terrain_only`, `user_formula`) against real Main ground truth with MAE and rank
-correlation. **Verified end-to-end today** (`python scripts/run_rigid_transfer_pilot.py`) -- but see
-"Native loading is unpredictably slow" in
-[docs/ENVIRONMENT_SETUP.md](docs/ENVIRONMENT_SETUP.md): Chrono scenario building in this environment
-has a roughly 1-in-3-4 chance of hanging 60s+ per process start, unrelated to this pilot's code, so a
-run may need to be killed and retried.
+`terrain_factory.py` unmodified (flat conditions only); slope tilts the floor itself (world gravity
+stays vertical -- see `scenario.py`'s docstring for why an earlier gravity-tilt version was wrong),
+and the obstacle condition is built with a small local helper, both to avoid touching the shared
+factories. Runs a torque-limited straight command (no ideal wheel-speed motor) and compares four
+predictors (`identity_baseline`, `slope_only`, `terrain_only`, `user_formula`) against real Main
+ground truth with MAE and rank correlation.
+
+**Verified end-to-end with a physically sane result** (`python scripts/run_rigid_transfer_pilot.py`):
+all 7 conditions complete without rollover (`completed=True`), `mean_slip` MAE ~0.008, and distance
+scales the way it should (climbing 5 deg is harder than flat; the 5cm obstacle stops the rover much
+harder than the 2cm one). Getting there took three real fixes on top of the earlier collision-material
+and gravity-sign bugs -- worth knowing before touching `presets.py`:
+
+1. The floor patch was only 4.0m long; main_v01 drove off the far edge mid-run and the resulting
+   pitch-off looked exactly like a rollover bug.
+2. The completion check only looked at the trajectory's final frame, so a rover that flipped early
+   and kept tumbling could read back "in tolerance" purely by chance at whatever angle it happened to
+   be at when the run ended. `RunSummary.max_pitch_deg`/`max_roll_deg` (checked over the whole run) fixed
+   this.
+3. `slope_10deg` and `slope_15deg` still reliably flip even after (1) and (2) and after sweeping
+   `torque_fraction` from 0.6 down to 0.2 -- root cause not found, so they're excluded from `CONDITIONS`
+   (see `presets.py::UNSTABLE_CONDITIONS`) rather than reported with garbage numbers.
+
+Each (rover, condition) pair runs in its own subprocess with a timeout + automatic retry (see
+`scripts/run_rigid_transfer_pilot.py`), because Chrono scenario building in this environment has a
+roughly 1-in-3-4 chance of hanging 60s+ per process start -- see "Native loading is unpredictably slow"
+in [docs/ENVIRONMENT_SETUP.md](docs/ENVIRONMENT_SETUP.md). This is unrelated to the pilot's own code;
+isolating each condition means one hang only costs a retry, not the whole run.
 

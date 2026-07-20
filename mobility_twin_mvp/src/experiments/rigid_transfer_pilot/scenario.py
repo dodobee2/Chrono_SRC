@@ -50,11 +50,30 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...integration_schemas import RoverSpec, TerrainGeometrySpec, TerrainMaterialSpec, TerrainScenario
-from ...registries import RoverRegistry, TerrainMaterialRegistry
+from ...registries import RoverRegistry, TerrainMaterialRegistry, TerrainRegistry
 from ...chrono.rover_factory import build_rover_from_spec
 from ...chrono.system_factory import make_nsc_contact_material, make_nsc_system
-from ...chrono.terrain_factory import DEFAULT_RESTITUTION, DEFAULT_RIGID_FRICTION, build_rigid_flat_terrain
-from .presets import FRICTION_MATERIAL_IDS, OBSTACLE_PRESETS, PATCH_DIMENSIONS_XYZ_M, ROVER_IDS, RigidCondition
+from ...chrono.terrain_factory import (
+    DEFAULT_RESTITUTION,
+    DEFAULT_RIGID_FRICTION,
+    build_rigid_flat_terrain,
+    build_terrain_from_scenario,
+)
+from .presets import (
+    FRICTION_MATERIAL_IDS,
+    JONGMIN_ARENA_CONDITION,
+    JONGMIN_ARENA_CONDITION_ID,
+    JONGMIN_ARENA_TERRAIN_ID,
+    OBSTACLE_PRESETS,
+    PATCH_DIMENSIONS_XYZ_M,
+    ROVER_IDS,
+    RigidCondition,
+)
+
+# Reused verbatim from src/chrono/irrlicht_jongmin_arena_viewer.py's
+# run_viewer -- that spawn point is the one this arena has actually been
+# driven from before (via the Irrlicht viewer), so it's not a new guess.
+JONGMIN_ARENA_SPAWN_XY_M = (-2.50, 0.0)
 
 if TYPE_CHECKING:
     from ...chrono.vendor.rover_module_v01.rover_builder import RoverInstance
@@ -104,8 +123,30 @@ def load_friction_material(friction_key: str) -> TerrainMaterialSpec:
     )
 
 
+def _load_jongmin_arena_terrain() -> tuple[TerrainScenario, TerrainMaterialSpec | None]:
+    terrain = TerrainRegistry(PROJECT_ROOT / "terrain_scenarios", repo_root=PROJECT_ROOT).load(JONGMIN_ARENA_TERRAIN_ID)
+    material_registry = TerrainMaterialRegistry(PROJECT_ROOT / "terrain_materials", repo_root=PROJECT_ROOT)
+    material = material_registry.load(terrain.material_id) if terrain.material_id in material_registry.ids() else None
+    return terrain, material
+
+
 def terrain_context_for(condition: RigidCondition) -> TerrainContext:
     """Builds the TerrainContext for a condition without touching pychrono."""
+    if condition.condition_id == JONGMIN_ARENA_CONDITION_ID:
+        terrain, material = _load_jongmin_arena_terrain()
+        return TerrainContext(
+            slope_deg=terrain.slope_long_deg,
+            friction_nominal=material.friction_nominal if material and material.friction_nominal is not None else 0.6,
+            rolling_resistance_nominal=material.rolling_resistance_nominal
+            if material and material.rolling_resistance_nominal is not None
+            else 0.05,
+            # Multi-zone arena, not a single fixed obstacle -- this pilot's
+            # obstacle_height_m/obstacle_distance_m concept doesn't apply;
+            # terrain_only's predictor already notes when obstacle modeling
+            # is skipped.
+            obstacle_height_m=0.0,
+            obstacle_distance_m=0.0,
+        )
     material = load_friction_material(condition.friction_key)
     obstacle_preset = OBSTACLE_PRESETS.get(condition.obstacle_key) if condition.obstacle_key else None
     return TerrainContext(
@@ -201,9 +242,44 @@ def _add_obstacle(system: Any, chrono: Any, condition: RigidCondition, patch_len
     system.Add(box)
 
 
+def _build_jongmin_arena_scenario(rover_key: str, torque_fraction: float, chrono: Any) -> PilotScenario:
+    """Builds scout/main on Jongmin's real 5-zone arena instead of this pilot's own flat/tilted floor.
+
+    Reuses terrain_factory.build_terrain_from_scenario + the arena's own
+    code_factory builder (terrain_scenarios/jongmin_arena_v01/chrono_factory.py)
+    unmodified -- that adapter already remaps SMC->NSC contact materials and
+    skips the SCM zone that needs pychrono.vehicle, so this only needs
+    pychrono core like every other condition in this pilot. Building this
+    arena (mesh + procedural rock zones) is noticeably slower than the other
+    conditions -- callers should use a longer per-attempt timeout.
+    """
+    rover_spec = _torque_limited_rover(load_rover_spec(rover_key), torque_fraction)
+    terrain, material = _load_jongmin_arena_terrain()
+    terrain_context = terrain_context_for(JONGMIN_ARENA_CONDITION)
+
+    system = make_nsc_system()
+    build_terrain_from_scenario(system, terrain, material)
+
+    spawn_x, spawn_y = JONGMIN_ARENA_SPAWN_XY_M
+    spawn_z = max(0.08, rover_spec.wheel_radius_m + 0.03)
+    spawn_frame = chrono.ChFramed(chrono.ChVector3d(spawn_x, spawn_y, spawn_z), chrono.QUNIT)
+    rover = build_rover_from_spec(system, rover_spec, spawn_frame=spawn_frame)
+
+    return PilotScenario(
+        system=system,
+        rover=rover,
+        rover_spec=rover_spec,
+        terrain_material=material,
+        terrain_context=terrain_context,
+    )
+
+
 def build_pilot_scenario(rover_key: str, condition: RigidCondition, torque_fraction: float) -> PilotScenario:
     """Build one (rover, condition) rigid pilot scenario. Only needs pychrono core."""
     import pychrono as chrono
+
+    if condition.condition_id == JONGMIN_ARENA_CONDITION_ID:
+        return _build_jongmin_arena_scenario(rover_key, torque_fraction, chrono)
 
     rover_spec = _torque_limited_rover(load_rover_spec(rover_key), torque_fraction)
     material = load_friction_material(condition.friction_key)

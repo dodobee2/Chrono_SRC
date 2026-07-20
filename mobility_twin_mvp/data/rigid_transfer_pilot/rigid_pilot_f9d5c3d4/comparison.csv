@@ -1,0 +1,37 @@
+actual_completed,condition_id,errors,predicted_completed,predictor_name,status
+False,flat,"{'mean_slip': 0.026465095180112818, 'mean_wheel_torque_nm': 0.004110918726207345, 'energy_j': 1.0677710716554243, 'mean_speed_mps': 0.052706610483777006, 'distance_m': 0.3424875549235571}",True,identity_baseline,OK
+False,flat,"{'mean_slip': 0.026465095180112818, 'mean_wheel_torque_nm': 0.005528252622655091, 'energy_j': 1.6321528761691628, 'mean_speed_mps': 0.052706610483777006, 'distance_m': 0.3424875549235571}",True,slope_only,OK
+False,flat,"{'mean_slip': 0.025427292507316766, 'mean_wheel_torque_nm': 0.0033235110059585977, 'energy_j': 0.7542256247033478, 'mean_speed_mps': 0.052706610483777006, 'distance_m': 0.3424875549235571}",True,terrain_only,OK
+False,flat,,,user_formula,NOT_CONFIGURED
+True,slope_5deg,"{'mean_slip': 0.36118164792239327, 'mean_wheel_torque_nm': 0.009617159929489565, 'energy_j': 2.9083807952335707, 'mean_speed_mps': 0.10986730618971718, 'distance_m': 0.7139177556207281}",True,identity_baseline,OK
+True,slope_5deg,"{'mean_slip': 0.36118164792239327, 'mean_wheel_torque_nm': 0.004720136264324094, 'energy_j': 0.259915468504035, 'mean_speed_mps': 0.10986730618971718, 'distance_m': 0.7139177556207281}",True,slope_only,OK
+True,slope_5deg,"{'mean_slip': 0.6476185523710483, 'mean_wheel_torque_nm': 0.004720136264324095, 'energy_j': 0.25991546850403324, 'mean_speed_mps': 0.10986730618971718, 'distance_m': 0.7139177556207281}",True,terrain_only,OK
+True,slope_5deg,,,user_formula,NOT_CONFIGURED
+False,slope_10deg,"{'mean_slip': 0.3158192019673134, 'mean_wheel_torque_nm': 0.018465215010861267, 'energy_j': 5.636488236692074, 'mean_speed_mps': 0.2500443729811721, 'distance_m': 1.624788335631533}",True,identity_baseline,OK
+False,slope_10deg,"{'mean_slip': 0.3158192019673134, 'mean_wheel_torque_nm': 0.00810676424264185, 'energy_j': 0.38321952735930864, 'mean_speed_mps': 0.2500443729811721, 'distance_m': 1.624788335631533}",True,slope_only,OK
+False,slope_10deg,"{'mean_slip': 2.1951586946905026, 'mean_wheel_torque_nm': 0.008106764242641857, 'energy_j': 0.38321952735930864, 'mean_speed_mps': 0.2500443729811721, 'distance_m': 1.624788335631533}",True,terrain_only,OK
+False,slope_10deg,,,user_formula,NOT_CONFIGURED
+False,slope_15deg,"{'mean_slip': 0.0350173536792413, 'mean_wheel_torque_nm': 0.026970390797044424, 'energy_j': 8.584932004965701, 'mean_speed_mps': 0.46859215323490677, 'distance_m': 3.044911811720193}",True,identity_baseline,OK
+False,slope_15deg,"{'mean_slip': 0.0350173536792413, 'mean_wheel_torque_nm': 0.011675092568561501, 'energy_j': 0.4594979501696024, 'mean_speed_mps': 0.46859215323490677, 'distance_m': 3.044911811720193}",True,slope_only,OK
+False,slope_15deg,"{'mean_slip': 2.63519729270256, 'mean_wheel_torque_nm': 0.011675092568561501, 'energy_j': 0.4594979501696024, 'mean_speed_mps': 0.46859215323490677, 'distance_m': 3.044911811720193}",True,terrain_only,OK
+False,slope_15deg,,,user_formula,NOT_CONFIGURED
+False,friction_low,"{'mean_slip': 0.047181810368637916, 'mean_wheel_torque_nm': 0.003099136129740253, 'energy_j': 0.813357942930485, 'mean_speed_mps': 0.06299344490640835, 'distance_m': 0.4093314050018102}",True,identity_baseline,OK
+False,friction_low,"{'mean_slip': 0.047181810368637916, 'mean_wheel_torque_nm': 0.0045751416091759185, 'energy_j': 1.4211999197114056, 'mean_speed_mps': 0.06299344490640835, 'distance_m': 0.4093314050018102}",True,slope_only,OK
+False,friction_low,"{'mean_slip': 0.04426249360524864, 'mean_wheel_torque_nm': 0.0022791330856093282, 'energy_j': 0.4756679558299739, 'mean_speed_mps': 0.06299344490640835, 'distance_m': 0.4093314050018102}",True,terrain_only,OK
+False,friction_low,,,user_formula,NOT_CONFIGURED
+False,friction_mid,"{'mean_slip': 0.025236399301623264, 'mean_wheel_torque_nm': 0.0040999248994167395, 'energy_j': 1.0681841579882678, 'mean_speed_mps': 0.052806878721410766, 'distance_m': 0.3431390979317013}",True,identity_baseline,OK
+False,friction_mid,"{'mean_slip': 0.025236399301623264, 'mean_wheel_torque_nm': 0.005528252622655091, 'energy_j': 1.6321528761691628, 'mean_speed_mps': 0.052806878721410766, 'distance_m': 0.3431390979317013}",True,slope_only,OK
+False,friction_mid,"{'mean_slip': 0.025027733249925178, 'mean_wheel_torque_nm': 0.0033064094976176565, 'energy_j': 0.7548682034433262, 'mean_speed_mps': 0.052806878721410766, 'distance_m': 0.3431390979317013}",True,terrain_only,OK
+False,friction_mid,,,user_formula,NOT_CONFIGURED
+False,friction_high,"{'mean_slip': 0.013663423173826865, 'mean_wheel_torque_nm': 0.00441967235664888, 'energy_j': 1.107167093663709, 'mean_speed_mps': 0.039122541927652965, 'distance_m': 0.25421827744586967}",True,identity_baseline,OK
+False,friction_high,"{'mean_slip': 0.013663423173826865, 'mean_wheel_torque_nm': 0.00592565783110877, 'energy_j': 1.7037934779305548, 'mean_speed_mps': 0.039122541927652965, 'distance_m': 0.25421827744586967}",True,slope_only,OK
+False,friction_high,"{'mean_slip': 0.014373019437070034, 'mean_wheel_torque_nm': 0.003583013759726719, 'energy_j': 0.7757079912932394, 'mean_speed_mps': 0.039122541927652965, 'distance_m': 0.25421827744586967}",True,terrain_only,OK
+False,friction_high,,,user_formula,NOT_CONFIGURED
+False,obstacle_low,"{'mean_slip': 0.004119398548721053, 'mean_wheel_torque_nm': 0.0037183990262571933, 'energy_j': 1.4842975932643734, 'mean_speed_mps': 0.05186100651377845, 'distance_m': 0.3369928203265067}",True,identity_baseline,OK
+False,obstacle_low,"{'mean_slip': 0.004119398548721053, 'mean_wheel_torque_nm': 0.007206028003944215, 'energy_j': 3.0633052889044405, 'mean_speed_mps': 0.05186100651377845, 'distance_m': 0.3369928203265067}",True,slope_only,OK
+False,obstacle_low,"{'mean_slip': 0.008843963379979712, 'mean_wheel_torque_nm': 0.0017808273719866268, 'energy_j': 0.607071095686559, 'mean_speed_mps': 0.05186100651377845, 'distance_m': 0.3369928203265067}",True,terrain_only,OK
+False,obstacle_low,,,user_formula,NOT_CONFIGURED
+True,obstacle_high,"{'mean_slip': 0.10189181037942985, 'mean_wheel_torque_nm': 0.03384124388023557, 'energy_j': 12.087523370179962, 'mean_speed_mps': 0.015762476598403324, 'distance_m': 0.10242457293641705}",True,identity_baseline,OK
+True,obstacle_high,"{'mean_slip': 0.10189181037942985, 'mean_wheel_torque_nm': 0.02002172063233167, 'energy_j': 3.930803584242622, 'mean_speed_mps': 0.015762476598403324, 'distance_m': 0.10242457293641705}",True,slope_only,OK
+True,obstacle_high,"{'mean_slip': 0.44659335220402996, 'mean_wheel_torque_nm': 0.06376511305388402, 'energy_j': 20.986593900414725, 'mean_speed_mps': 0.015762476598403324, 'distance_m': 0.10242457293641705}",True,terrain_only,OK
+True,obstacle_high,,,user_formula,NOT_CONFIGURED

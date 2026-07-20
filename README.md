@@ -49,6 +49,8 @@ C:\K_SRC\
 현재 앱에는 계정, 로그인, 권한 관리 기능이 없습니다. 별도 사인인 없이 로컬 PC에서 실행한 뒤 브라우저의 Streamlit 주소(보통 `http://localhost:8501`)로 접속합니다.
 
 `conda activate chrono`는 로그인 명령이 아니라 PyChrono가 설치된 Python 환경을 활성화하는 명령입니다.
+-> 기존에 본인의 크로노 가상환경에 다음 파일 설치
+SRC\mobility_twin_mvp\requirements.txt
 
 ### 3.2 일반 앱 실행(Chrono 없이)
 
@@ -64,7 +66,7 @@ python -m streamlit run app.py --browser.gatherUsageStats false
 
 ### 3.3 PyChrono 기능을 포함한 실행
 
-현재 확인된 환경 이름은 `chrono`입니다.
+현재 확인된 환경 이름은 `chrono`입니다. (도희 기준)
 
 ```powershell
 conda activate chrono

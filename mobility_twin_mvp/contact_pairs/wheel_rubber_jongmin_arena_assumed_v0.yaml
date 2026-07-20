@@ -1,0 +1,10 @@
+contact_pair_id: wheel_rubber_jongmin_arena_assumed_v0
+wheel_material_id: wheel_rubber_v0
+terrain_material_id: jongmin_arena_mixed_assumed_v0
+mu_eff: 0.70
+crr_eff: 0.09
+source: assumed
+confidence: 0.35
+metadata:
+  owner: integration
+  note: Assumed effective contact pair for Jongmin's mixed arena. Replace with measured/calibrated wheel-terrain contact data.

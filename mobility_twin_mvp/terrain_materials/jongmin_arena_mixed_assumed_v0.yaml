@@ -1,0 +1,20 @@
+material_id: jongmin_arena_mixed_assumed_v0
+model_type: unknown
+friction_nominal: 0.70
+rolling_resistance_nominal: 0.09
+restitution: 0.02
+scm_parameters:
+  bekker_kphi: 150000.0
+  bekker_kc: 0.0
+  bekker_n: 1.10
+  mohr_cohesion: 0.0
+  mohr_friction_angle_deg: 28.0
+  janosi_shear_m: 0.02
+  elastic_stiffness: 15000000.0
+  damping: 20000.0
+  grid_spacing_m: 0.025
+parameter_source: assumed
+confidence: 0.35
+metadata:
+  owner: Jongmin terrain model team
+  note: Mixed arena placeholder material. Replace with zone-specific calibrated material files when available.

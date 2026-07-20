@@ -1,0 +1,18 @@
+{
+  "rover_id": "scout_v01",
+  "condition_id": "slope_5deg",
+  "distance_m": 3.1113688262953847,
+  "mean_speed_mps": 0.47881945618584504,
+  "mean_slip": 1.0024901668995854,
+  "max_slip": 85.49978363545179,
+  "mean_wheel_torque_nm": 0.012998863417200636,
+  "peak_wheel_torque_nm": 0.07970998865540205,
+  "energy_j": 5.790407932854235,
+  "mean_pitch_deg": 5.00178249554856,
+  "mean_roll_deg": 0.00399580381199854,
+  "final_pitch_deg": -5.000409576883965,
+  "final_roll_deg": -0.004993388273318785,
+  "max_contact_count": 28,
+  "completed": true,
+  "wall_time_s": 2.517248899999686
+}

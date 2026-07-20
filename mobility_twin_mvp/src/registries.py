@@ -59,8 +59,11 @@ class YamlRegistry(Generic[T]):
         if "://" in uri:
             warnings.warn(f"{label} uses placeholder/non-file URI: {uri}", UserWarning, stacklevel=2)
             return
-        candidate = (source_path.parent / uri).resolve()
-        repo_candidate = (self.repo_root / uri).resolve()
+        path_part = uri
+        if label.endswith("factory_uri") and ":" in uri:
+            path_part = uri.split(":", 1)[0]
+        candidate = (source_path.parent / path_part).resolve()
+        repo_candidate = (self.repo_root / path_part).resolve()
         if candidate.exists() or repo_candidate.exists():
             return
         warnings.warn(f"{label} asset is not present yet: {uri}", UserWarning, stacklevel=2)

@@ -1,0 +1,20 @@
+{
+  "rover_id": "scout_v01",
+  "condition_id": "friction_high",
+  "distance_m": 3.503090730752364,
+  "mean_speed_mps": 0.5391029133198877,
+  "mean_slip": 0.0035939589299965142,
+  "max_slip": 0.5363444646332389,
+  "mean_wheel_torque_nm": 0.0015868407746502278,
+  "peak_wheel_torque_nm": 0.06842976510813893,
+  "energy_j": 0.5119412881057529,
+  "mean_pitch_deg": 0.0007835635503335183,
+  "mean_roll_deg": 0.0004596998940892252,
+  "max_pitch_deg": 0.002783067146822572,
+  "max_roll_deg": 0.002379181003314942,
+  "final_pitch_deg": -0.000828626125000529,
+  "final_roll_deg": -0.0014215852362483123,
+  "max_contact_count": 28,
+  "completed": true,
+  "wall_time_s": 2.206236500001978
+}

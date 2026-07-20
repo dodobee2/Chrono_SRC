@@ -1,0 +1,67 @@
+{
+  "run_id": "rigid_pilot_f9d5c3d4",
+  "conditions": [
+    {
+      "condition_id": "flat",
+      "slope_deg": 0.0,
+      "friction_key": "mid",
+      "obstacle_key": null
+    },
+    {
+      "condition_id": "slope_5deg",
+      "slope_deg": 5.0,
+      "friction_key": "mid",
+      "obstacle_key": null
+    },
+    {
+      "condition_id": "slope_10deg",
+      "slope_deg": 10.0,
+      "friction_key": "mid",
+      "obstacle_key": null
+    },
+    {
+      "condition_id": "slope_15deg",
+      "slope_deg": 15.0,
+      "friction_key": "mid",
+      "obstacle_key": null
+    },
+    {
+      "condition_id": "friction_low",
+      "slope_deg": 0.0,
+      "friction_key": "low",
+      "obstacle_key": null
+    },
+    {
+      "condition_id": "friction_mid",
+      "slope_deg": 0.0,
+      "friction_key": "mid",
+      "obstacle_key": null
+    },
+    {
+      "condition_id": "friction_high",
+      "slope_deg": 0.0,
+      "friction_key": "high",
+      "obstacle_key": null
+    },
+    {
+      "condition_id": "obstacle_low",
+      "slope_deg": 0.0,
+      "friction_key": "mid",
+      "obstacle_key": "low"
+    },
+    {
+      "condition_id": "obstacle_high",
+      "slope_deg": 0.0,
+      "friction_key": "mid",
+      "obstacle_key": "high"
+    }
+  ],
+  "command": {
+    "torque_fraction": 0.6,
+    "duration_s": 6.0
+  },
+  "rovers": {
+    "scout": "scout_v01",
+    "main": "main_v01"
+  }
+}

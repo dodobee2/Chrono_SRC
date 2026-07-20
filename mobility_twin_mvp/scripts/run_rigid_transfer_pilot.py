@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import csv
 import json
-import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -34,69 +33,28 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.chrono.availability import get_pychrono_availability
 from src.experiments.rigid_transfer_pilot.evaluator import evaluate
+from src.experiments.rigid_transfer_pilot.isolated_runner import ConditionRunFailed
+from src.experiments.rigid_transfer_pilot.isolated_runner import run_condition_isolated as _run_condition_isolated
 from src.experiments.rigid_transfer_pilot.metrics import RunSummary
 from src.experiments.rigid_transfer_pilot.predictor import PREDICTORS, PredictionResult, predict_main_from_scout
 from src.experiments.rigid_transfer_pilot.presets import CONDITIONS, DEFAULT_COMMAND
 from src.experiments.rigid_transfer_pilot.scenario import load_rover_spec, terrain_context_for
 
-SINGLE_CONDITION_SCRIPT = Path(__file__).resolve().parent / "_run_single_condition.py"
-PER_ATTEMPT_TIMEOUT_S = 60.0
-MAX_ATTEMPTS = 4
-
-
-class ConditionRunFailed(RuntimeError):
-    pass
-
 
 def run_condition_isolated(rover_key: str, condition_id: str, out_dir: Path) -> tuple[list[dict], RunSummary]:
-    """Runs one (rover, condition) pair in its own subprocess, retrying on timeout.
+    """CLI wrapper around isolated_runner.run_condition_isolated that prints attempt progress."""
 
-    Returns (trajectory_rows, RunSummary). Raises ConditionRunFailed if every
-    attempt times out or errors -- callers should let this abort the whole
-    run rather than silently substituting a fake/empty result.
-    """
-    last_error = "unknown error"
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        print(f"  ({rover_key}/{condition_id}) attempt {attempt}/{MAX_ATTEMPTS} ...", flush=True)
-        try:
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    str(SINGLE_CONDITION_SCRIPT),
-                    "--rover",
-                    rover_key,
-                    "--condition",
-                    condition_id,
-                    "--out",
-                    str(out_dir),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=PER_ATTEMPT_TIMEOUT_S,
-            )
-        except subprocess.TimeoutExpired:
-            last_error = f"timed out after {PER_ATTEMPT_TIMEOUT_S:.0f}s"
-            print(f"    {last_error}, retrying...", flush=True)
-            continue
-        if completed.returncode != 0:
-            last_error = (completed.stderr or completed.stdout or "non-zero exit").strip().splitlines()[-1]
-            print(f"    failed ({last_error}), retrying...", flush=True)
-            continue
+    def _print_attempt(attempt: int, max_attempts: int, status: str) -> None:
+        if status == "starting":
+            print(f"  ({rover_key}/{condition_id}) attempt {attempt}/{max_attempts} ...", flush=True)
+        elif status == "timeout":
+            print("    timed out, retrying...", flush=True)
+        elif status == "failed":
+            print("    failed, retrying...", flush=True)
 
-        summary_path = out_dir / "summary.json"
-        trajectory_path = out_dir / "trajectory.csv"
-        if not summary_path.exists() or not trajectory_path.exists():
-            last_error = "subprocess exited 0 but did not write summary.json/trajectory.csv"
-            print(f"    {last_error}, retrying...", flush=True)
-            continue
-
-        summary = RunSummary(**json.loads(summary_path.read_text(encoding="utf-8")))
-        with trajectory_path.open(encoding="utf-8") as handle:
-            trajectory = list(csv.DictReader(handle))
-        print(f"    ok (distance={summary.distance_m:.3f}m, contact={summary.max_contact_count})", flush=True)
-        return trajectory, summary
-
-    raise ConditionRunFailed(f"({rover_key}/{condition_id}) did not complete after {MAX_ATTEMPTS} attempts: {last_error}")
+    trajectory, summary = _run_condition_isolated(rover_key, condition_id, out_dir, on_attempt=_print_attempt)
+    print(f"    ok (distance={summary.distance_m:.3f}m, contact={summary.max_contact_count})", flush=True)
+    return trajectory, summary
 
 
 def write_trajectory_csv(trajectory: list[dict], path: Path) -> None:

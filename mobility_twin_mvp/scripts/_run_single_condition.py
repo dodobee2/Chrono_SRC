@@ -17,7 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.experiments.rigid_transfer_pilot.metrics import TRAJECTORY_COLUMNS
-from src.experiments.rigid_transfer_pilot.presets import CONDITIONS, DEFAULT_COMMAND
+from src.experiments.rigid_transfer_pilot.presets import CONDITIONS, DEFAULT_COMMAND, EXTRA_CONDITIONS
 from src.experiments.rigid_transfer_pilot.runner import run_pilot
 
 
@@ -28,7 +28,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
 
-    condition = next((c for c in CONDITIONS if c.condition_id == args.condition), None)
+    condition = next((c for c in CONDITIONS + EXTRA_CONDITIONS if c.condition_id == args.condition), None)
     if condition is None:
         print(f"unknown condition_id {args.condition!r}", file=sys.stderr)
         return 1

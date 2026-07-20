@@ -1,0 +1,34 @@
+observation_id: O_jongmin_arena_nominal
+terrain_id: jongmin_arena_v01
+scout_rover_id: scout_v01
+control_profile_id: nominal_traverse
+timestamp_utc: "2026-07-16T00:00:00+00:00"
+patch_id: 501
+grid_x: 5
+grid_y: 0
+pose_xyz_m: [-2.50, 0.0, 0.0]
+heading_deg: 0.0
+sample_count: 1
+travel_distance_m: 5.5
+slope_long_deg: 15.0
+slope_lat_deg: 12.0
+roughness_m: 0.08
+obstacle_height_m: 0.20
+gap_width_m: 0.0
+mean_body_speed_mps: 0.16
+mean_wheel_speed_radps: 3.2
+mean_slip: 0.38
+max_slip: 0.62
+mean_sinkage_m: 0.045
+max_sinkage_m: 0.070
+mean_wheel_torque_nm: 0.18
+cot: 2.10
+vibration_rms_g: 0.95
+geometry_confidence: 0.75
+response_confidence: 0.25
+prediction_confidence: 0.0
+source_type: mock
+observation_state: SCOUT_OBSERVED
+metadata:
+  owner: integration
+  note: Temporary placeholder observation so the UI can run Jongmin arena selection end-to-end. Replace with real scout trajectory summary.

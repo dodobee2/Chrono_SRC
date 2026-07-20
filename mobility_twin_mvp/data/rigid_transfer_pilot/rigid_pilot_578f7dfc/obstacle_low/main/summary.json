@@ -1,0 +1,18 @@
+{
+  "rover_id": "main_v01",
+  "condition_id": "obstacle_low",
+  "distance_m": 3.7841576883494787,
+  "mean_speed_mps": 0.5823572927592746,
+  "mean_slip": 0.011120721597432846,
+  "max_slip": 0.509230328034569,
+  "mean_wheel_torque_nm": 0.007206028003944215,
+  "peak_wheel_torque_nm": 0.1402136029124502,
+  "energy_j": 3.0633052889044405,
+  "mean_pitch_deg": 1.7313926166671418,
+  "mean_roll_deg": 0.13086977906588493,
+  "final_pitch_deg": 52.00178452935105,
+  "final_roll_deg": -3.9293896465063822,
+  "max_contact_count": 31,
+  "completed": false,
+  "wall_time_s": 3.940448400000605
+}

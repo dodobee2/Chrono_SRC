@@ -99,6 +99,22 @@ UNSTABLE_CONDITIONS: tuple[RigidCondition, ...] = (
     RigidCondition("slope_15deg", 15.0, BASELINE_FRICTION_KEY, None),
 )
 
+# Jongmin's real 5-zone arena (terrain_scenarios/jongmin_arena_v01), added
+# 2026-07-16 as an extra selectable condition in app.py's 3-B live panel only
+# -- NOT part of CONDITIONS, so scripts/run_rigid_transfer_pilot.py's 7-way
+# CLI batch and its tests are untouched. slope_deg/friction_key/obstacle_key
+# below are unused placeholders for this entry: scenario.py's
+# build_pilot_scenario and terrain_context_for special-case
+# condition_id == JONGMIN_ARENA_CONDITION_ID and load the arena's real
+# TerrainScenario/TerrainMaterialSpec instead of building from these fields.
+# This arena is slower to build than the other conditions (multi-zone mesh +
+# rock generation) -- callers should use a longer per-attempt timeout (see
+# app.py's render_rigid_transfer_live_run).
+JONGMIN_ARENA_CONDITION_ID = "jongmin_arena"
+JONGMIN_ARENA_TERRAIN_ID = "jongmin_arena_v01"
+JONGMIN_ARENA_CONDITION = RigidCondition(JONGMIN_ARENA_CONDITION_ID, 0.0, BASELINE_FRICTION_KEY, None)
+EXTRA_CONDITIONS: tuple[RigidCondition, ...] = (JONGMIN_ARENA_CONDITION,)
+
 
 @dataclass(frozen=True)
 class TorqueCommand:
